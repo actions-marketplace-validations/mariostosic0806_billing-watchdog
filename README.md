@@ -71,4 +71,4 @@ Every live Pro run opens a single `BEGIN ISOLATION LEVEL REPEATABLE READ, READ O
 
 ## Contact & Licensing
 
-Unlock executable SQL remediation patches and the complete Self-Hosted Pro v2 TypeScript engine (`105` automated state-machine, pentest, SARIF, and chaos tests) at [mariostosic0806.github.io/billing-watchdog](https://mariostosic0806.github.io/billing-watchdog/) or contact [mariostosic@prime-tech.rs](mailto:mariostosic@prime-tech.rs).
+Unlock executable SQL remediation patches and the complete Self-Hosted Pro v2 TypeScript engine (`106` automated state-machine, pentest, SARIF, and chaos tests) at [mariostosic0806.github.io/billing-watchdog](https://mariostosic0806.github.io/billing-watchdog/) or contact [mariostosic@prime-tech.rs](mailto:mariostosic@prime-tech.rs).

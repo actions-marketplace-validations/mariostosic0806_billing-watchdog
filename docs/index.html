@@ -315,7 +315,7 @@
           <button type="button" class="btn" style="padding:9px 14px;font-size:12.5px;" onclick="unlockProPortal()">🔑 Unlock Pro Export</button>
         </div>
       </div>
-      <div id="license-status-msg" style="margin-top:8px;font-size:12px;color:var(--muted);">
+      <div id="license-status-msg" role="status" aria-live="polite" style="margin-top:8px;font-size:12px;color:var(--muted);">
         Status: <strong style="color:#fbbf24;">FREE DIAGNOSTIC MODE (Remediation SQL Export Redacted)</strong>
       </div>
     </div>
@@ -367,7 +367,7 @@
     </div>
 
     <!-- ================================================================== -->
-    <!-- COMMERCIAL SELF-HOSTED LICENSING (PAYPAL CHECKOUT)                 -->
+    <!-- COMMERCIAL SELF-HOSTED LICENSING (POLAR.SH MoR CHECKOUT)           -->
     <!-- ================================================================== -->
     <div class="card" id="self-hosted-license">
       <h2>5. Deploy Billing Watchdog v2 100% Self-Hosted in Your CI/CD (Zero Third-Party Cloud Access)</h2>
@@ -406,7 +406,7 @@
               <li>Stripe Chargeback Dispute Evidence Log &amp; Guest Checkout Reconciler</li>
             </ul>
           </div>
-          <button class="btn" onclick="startPayPalCheckout('Pro Monthly Watchdog v2 ($49/mo)', '49.00')">Buy via PayPal ($49/mo)</button>
+          <button type="button" class="btn" onclick="startPolarCheckout('Pro Monthly Watchdog v2 ($49/mo)', 4900)">Buy via Polar.sh ($49/mo)</button>
         </div>
 
         <div class="plan-card">
@@ -422,7 +422,7 @@
               <li>Ready-to-Merge GitHub Actions CI/CD Workflow</li>
             </ul>
           </div>
-          <button class="btn btn-secondary" onclick="startPayPalCheckout('Lifetime Team License v2 ($149 One-Time)', '149.00')">Buy Lifetime via PayPal ($149)</button>
+          <button type="button" class="btn btn-secondary" onclick="startPolarCheckout('Lifetime Team License v2 ($149 One-Time)', 14900)">Buy Lifetime via Polar.sh ($149)</button>
         </div>
       </div>
 
@@ -1345,29 +1345,67 @@
     }
 
     // Polar.sh Merchant-of-Record Instant Delivery Links (EU VAT / US Tax + GitHub Repo Invite + BWV2E Key)
-    // Paste your live `https://buy.polar.sh/polar_cl_...` checkout links here to switch buttons from PayPal fallback to instant 0s Polar MoR fulfillment.
+    // Keyed strictly by INTEGER cents (4900 = PRO_MONTHLY, 14900 = LIFETIME_TEAM; zero FLOAT/REAL).
     const POLAR_CHECKOUT_URLS = {
-      "49.00": "",
-      "149.00": ""
+      4900: "",
+      14900: ""
     };
-    const AUTOMATIC_CHECKOUT_URLS = POLAR_CHECKOUT_URLS;
+    if (typeof window !== "undefined") {
+      window.POLAR_CHECKOUT_URLS = POLAR_CHECKOUT_URLS;
+    }
 
-    function startPayPalCheckout(itemName, amountUsd) {
-      const configuredMoRUrl = AUTOMATIC_CHECKOUT_URLS[amountUsd];
-      if (configuredMoRUrl && configuredMoRUrl.indexOf("https://") === 0) {
-        window.open(configuredMoRUrl, "_blank", "noopener,noreferrer");
-        return;
+    function formatUsdFromIntegerCents(amountCents) {
+      const whole = Math.trunc(amountCents / 100);
+      const minor = Math.abs(amountCents % 100);
+      return "$" + whole + (minor > 0 ? "." + String(minor).padStart(2, "0") : "");
+    }
+
+    function escapeHtmlSafe(raw) {
+      return String(raw || "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;");
+    }
+
+    function startPolarCheckout(itemName, amountCents) {
+      if (typeof amountCents !== "number" || !Number.isSafeInteger(amountCents) || amountCents <= 0) {
+        throw new Error("NonIntegerMoneyError: amountCents must be a positive safe integer in minor units.");
       }
-      const returnUrl = "https://mariostosic0806.github.io/billing-watchdog/?checkout=success";
-      const cancelUrl = "https://mariostosic0806.github.io/billing-watchdog/?checkout=canceled";
-      const payUrl = "https://www.paypal.com/cgi-bin/webscr?cmd=_xclick" +
-        "&business=" + encodeURIComponent("mario.stosic357@gmail.com") +
-        "&item_name=" + encodeURIComponent("Billing Watchdog - " + itemName) +
-        "&amount=" + encodeURIComponent(amountUsd) +
-        "&currency_code=USD" +
-        "&return=" + encodeURIComponent(returnUrl) +
-        "&cancel_return=" + encodeURIComponent(cancelUrl);
-      window.open(payUrl, "_blank", "noopener,noreferrer");
+      const configuredMoRUrl = Object.prototype.hasOwnProperty.call(POLAR_CHECKOUT_URLS, amountCents)
+        ? POLAR_CHECKOUT_URLS[amountCents]
+        : "";
+      if (typeof configuredMoRUrl === "string" && configuredMoRUrl.indexOf("https://buy.polar.sh/") === 0) {
+        window.open(configuredMoRUrl, "_blank", "noopener,noreferrer");
+        return true;
+      }
+
+      const tierCode = amountCents === 14900 ? "LIFETIME_TEAM" : "PRO_MONTHLY";
+      const displayUsd = formatUsdFromIntegerCents(amountCents);
+      const subject = encodeURIComponent(
+        "Polar.sh MoR Checkout / Invoice Request - Billing Watchdog v2 (" + tierCode + " - " + amountCents + " cents)"
+      );
+      const body = encodeURIComponent(
+        "Hi Mario,\n\nPlease send an instant Polar.sh Merchant-of-Record checkout link (or EU VAT / B2B invoice) for:\n" +
+        "- Plan: " + itemName + " (" + tierCode + ")\n" +
+        "- Amount: " + displayUsd + " USD (" + amountCents + " integer cents)\n\n" +
+        "Upon settlement, please deliver our Ed25519 BWV2E-... license key and GitHub Pro repository invite.\n"
+      );
+      const mailtoHref = "mailto:mariostosic@prime-tech.rs?subject=" + subject + "&body=" + body;
+
+      const statusEl = document.getElementById("license-status-msg");
+      if (statusEl) {
+        statusEl.innerHTML =
+          '<div style="margin-top:6px;padding:12px 14px;border-radius:8px;background:#0f172a;border:1px solid #38bdf8;color:#f8fafc;line-height:1.55;">' +
+            '<strong style="color:#7dd3fc;">Polar.sh Merchant-of-Record Checkout (' + escapeHtmlSafe(itemName) + ' — ' + amountCents + ' integer cents):</strong> ' +
+            'Live self-serve <code>buy.polar.sh</code> link is not yet published in this static build (fail-closed — zero unverified external payment redirects). ' +
+            '<a href="' + mailtoHref + '" style="color:#6ee7b7;font-weight:700;text-decoration:underline;">Request instant Polar.sh MoR checkout link / VAT invoice via mariostosic@prime-tech.rs →</a>' +
+          '</div>';
+        if (typeof statusEl.scrollIntoView === "function") {
+          statusEl.scrollIntoView({ behavior: "smooth", block: "center" });
+        }
+      }
+      return false;
     }
 
     runChaosSimulation("ALL");
