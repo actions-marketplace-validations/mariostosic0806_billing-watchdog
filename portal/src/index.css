@@ -1,0 +1,127 @@
+@import "tailwindcss";
+@source "../index.html";
+@source "../src";
+
+/* Strictly scope dark: variant to explicit .dark ancestor (prevents OS dark-mode bleed onto vellum daylight shell) */
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme {
+  --color-canvas: #F4F2EC;
+  --color-sheet: #FCFBF8;
+  --color-well: #EAE6DD;
+  --color-hairline: #DDD8CE;
+  --color-hairline-strong: #C5BEB1;
+
+  --color-ink: #141413;
+  --color-ink-secondary: #47453F;
+  --color-ink-muted: #68645B;
+  --color-ink-well-muted: #5C5850;
+  --color-focus: #1E4E79;
+
+  --color-bay: #121311;
+  --color-bay-chrome: #1B1D1A;
+  --color-bay-border: #2C2F2A;
+  --color-bay-ink: #EAE8E1;
+  --color-bay-gutter: #8C8A82;
+
+  /* Signals — WCAG AA contrast derived */
+  --color-sig-leak: #C82E1F;
+  --color-sig-leak-ink: #A42216;
+  --color-sig-leak-bg: #FDF2F0;
+  --color-bay-leak: #FF7A6B;
+
+  --color-sig-ok: #0D7A5F;
+  --color-sig-ok-ink: #095E49;
+  --color-sig-ok-bg: #EDF7F3;
+  --color-bay-ok: #4CD4AE;
+
+  /* --sig-warn #B86B00 restricted strictly to non-text dots, icons, 2px borders (>=3:1). Use --sig-warn-ink #8F5100 for all text */
+  --color-sig-warn: #B86B00;
+  --color-sig-warn-ink: #8F5100;
+  --color-sig-warn-bg: #FCF6E8;
+  --color-bay-warn: #F2B441;
+
+  --font-display: "Newsreader", Georgia, serif;
+  --font-sans: "IBM Plex Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+@layer base {
+  *, *::before, *::after {
+    box-sizing: border-box;
+    border-color: var(--color-hairline);
+  }
+
+  html {
+    background-color: var(--color-canvas);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  body {
+    margin: 0;
+    background-color: var(--color-canvas);
+    color: var(--color-ink);
+    overflow-x: clip;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-focus);
+    outline-offset: 2px;
+  }
+}
+
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
+.command-grid-bg {
+  background-color: var(--color-sheet);
+  background-image: radial-gradient(rgba(20, 20, 18, 0.045) 1px, transparent 1px);
+  background-size: 24px 24px;
+}
+
+/* Custom 6px slim scrollbars — zero OS grey bars */
+.bay-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: #3A3D37 #121311;
+}
+.bay-scroll::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+.bay-scroll::-webkit-scrollbar-track {
+  background: #121311;
+}
+.bay-scroll::-webkit-scrollbar-thumb {
+  background-color: #3A3D37;
+  border-radius: 3px;
+}
+.bay-scroll::-webkit-scrollbar-thumb:hover {
+  background-color: #52564E;
+}
+
+.sheet-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: #CBC5B8 #FCFBF8;
+}
+.sheet-scroll::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+.sheet-scroll::-webkit-scrollbar-track {
+  background: #FCFBF8;
+}
+.sheet-scroll::-webkit-scrollbar-thumb {
+  background-color: #CBC5B8;
+  border-radius: 3px;
+}
+
+.no-scrollbar {
+  scrollbar-width: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
