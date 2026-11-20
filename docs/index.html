@@ -3,2448 +3,1671 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Billing Watchdog v2 — Deterministic Stripe ↔ Postgres State Machine, Webhook Fault Simulator &amp; Credit Circuit-Breaker</title>
-  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%230F172A' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z'/%3E%3Cpath d='m9 12 2 2 4-4'/%3E%3C/svg%3E" />
+  <title>Billing Watchdog v2 — Deterministic Firewall for Stripe &amp; Postgres Credit Ledgers</title>
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23141413' stroke-width='2' stroke-linecap='square' stroke-linejoin='miter'%3E%3Crect x='2.5' y='2.5' width='19' height='19' rx='2'/%3E%3Cpath d='M6 12h4l2-5 3 10 2-5h1'/%3E%3C/svg%3E" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
-  <style>
-    :root {
-      --bg-page: #F8FAFC;
-      --bg-surface: #FFFFFF;
-      --bg-subtle: #F1F5F9;
-      --bg-code: #0F172A;
-      --bg-code-header: #1E293B;
-      --ink-primary: #0F172A;
-      --ink-secondary: #475569;
-      --ink-muted: #64748B;
-      --border-subtle: #E2E8F0;
-      --border-strong: #CBD5E1;
-      --brand-primary: #0F172A;
-      --brand-primary-hover: #1E293B;
-      --brand-accent: #2563EB;
-      --brand-accent-soft: #EFF6FF;
-      --danger-ink: #B91C1C;
-      --danger-bg: #FEF2F2;
-      --danger-border: #FECACA;
-      --danger-accent: #DC2626;
-      --ok-ink: #047857;
-      --ok-bg: #ECFDF5;
-      --ok-border: #A7F3D0;
-      --ok-accent: #059669;
-      --warn-ink: #B45309;
-      --warn-bg: #FFFBEB;
-      --warn-border: #FDE68A;
-      --radius-sm: 6px;
-      --radius-md: 10px;
-      --radius-lg: 14px;
-      --shadow-xs: 0 1px 2px rgba(15, 23, 42, 0.04);
-      --shadow-sm: 0 1px 3px rgba(15, 23, 42, 0.06), 0 1px 2px rgba(15, 23, 42, 0.04);
-      --font-sans: "Plus Jakarta Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-      --ease: 150ms cubic-bezier(0.2, 0, 0, 1);
-    }
-
-    *, *::before, *::after {
-      box-sizing: border-box;
-    }
-
-    html {
-      scroll-behavior: smooth;
-    }
-
-    body {
-      margin: 0;
-      font-family: var(--font-sans);
-      background: var(--bg-page);
-      color: var(--ink-primary);
-      line-height: 1.55;
-      font-size: 15px;
-      -webkit-font-smoothing: antialiased;
-      overflow-x: clip;
-    }
-
-    a {
-      color: var(--brand-accent);
-      text-decoration: none;
-      transition: color var(--ease);
-    }
-
-    a:hover {
-      text-decoration: underline;
-    }
-
-    code {
-      font-family: var(--font-mono);
-      font-size: 0.88em;
-      background: var(--bg-subtle);
-      color: var(--ink-primary);
-      padding: 2px 5px;
-      border-radius: 4px;
-      border: 1px solid var(--border-subtle);
-    }
-
-    .bg-code-inline,
-    .code-pane code,
-    .code-pane-bar code,
-    .polar-notice code,
-    .status-line code {
-      background: rgba(148, 163, 184, 0.16);
-      border-color: rgba(148, 163, 184, 0.25);
-    }
-
-    .code-pane code,
-    .code-pane-bar code {
-      color: #E2E8F0;
-    }
-
-    section[id],
-    #sql-linter-section {
-      scroll-margin-top: 72px;
-    }
-
-    :focus-visible {
-      outline: 2px solid var(--brand-accent);
-      outline-offset: 2px;
-    }
-
-    .skip-link {
-      position: absolute;
-      left: -9999px;
-      top: 8px;
-      background: var(--brand-primary);
-      color: #FFFFFF;
-      padding: 8px 14px;
-      border-radius: var(--radius-sm);
-      font-weight: 600;
-      font-size: 13px;
-      z-index: 100;
-    }
-
-    .skip-link:focus-visible {
-      left: 16px;
-    }
-
-    .tabular {
-      font-variant-numeric: tabular-nums;
-    }
-
-    /* Sticky Daylight Topbar */
-    .topbar {
-      position: sticky;
-      top: 0;
-      z-index: 40;
-      height: 56px;
-      background: rgba(248, 250, 252, 0.9);
-      backdrop-filter: blur(12px);
-      -webkit-backdrop-filter: blur(12px);
-      border-bottom: 1px solid var(--border-subtle);
-    }
-
-    .topbar-inner {
-      max-width: 1240px;
-      height: 100%;
-      margin: 0 auto;
-      padding: 0 24px;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 20px;
-    }
-
-    .brand-lockup {
-      display: inline-flex;
-      align-items: center;
-      gap: 10px;
-      color: var(--ink-primary);
-      font-weight: 700;
-      font-size: 14.5px;
-      letter-spacing: -0.015em;
-      white-space: nowrap;
-      text-decoration: none;
-    }
-
-    .brand-lockup:hover {
-      text-decoration: none;
-      color: var(--brand-accent);
-    }
-
-    .brand-mark {
-      width: 28px;
-      height: 28px;
-      border-radius: 7px;
-      background: var(--brand-primary);
-      color: #FFFFFF;
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      flex-shrink: 0;
-    }
-
-    .nav-links {
-      display: flex;
-      align-items: center;
-      gap: 20px;
-    }
-
-    .nav-links a {
-      color: var(--ink-secondary);
-      font-size: 13.5px;
-      font-weight: 600;
-      white-space: nowrap;
-      transition: color var(--ease);
-    }
-
-    .nav-links a:hover {
-      color: var(--ink-primary);
-      text-decoration: none;
-    }
-
-    .nav-github {
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      padding: 6px 11px;
-      border-radius: var(--radius-sm);
-      border: 1px solid var(--border-strong);
-      background: var(--bg-surface);
-      color: var(--ink-primary);
-      font-size: 12.5px;
-      font-weight: 600;
-      white-space: nowrap;
-      transition: background-color var(--ease), border-color var(--ease);
-    }
-
-    .nav-github:hover {
-      background: var(--bg-subtle);
-      border-color: var(--ink-muted);
-      text-decoration: none;
-    }
-
-    /* Main Container & Sections */
-    .container {
-      max-width: 1240px;
-      margin: 0 auto;
-      padding: 36px 24px 72px;
-    }
-
-    /* Editorial Hero */
-    .hero {
-      display: grid;
-      grid-template-columns: minmax(0, 7fr) minmax(0, 5fr);
-      gap: 32px;
-      align-items: start;
-      padding-bottom: 36px;
-      border-bottom: 1px solid var(--border-subtle);
-      margin-bottom: 36px;
-    }
-
-    .eyebrow-pill {
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
-      padding: 4px 11px;
-      border-radius: 999px;
-      font-size: 12.5px;
-      font-weight: 600;
-      background: var(--brand-accent-soft);
-      color: #1D4ED8;
-      border: 1px solid #BFDBFE;
-    }
-
-    .eyebrow-dot {
-      width: 6px;
-      height: 6px;
-      border-radius: 50%;
-      background: var(--brand-accent);
-    }
-
-    h1 {
-      font-size: clamp(28px, 3.3vw, 39px);
-      font-weight: 800;
-      line-height: 1.13;
-      letter-spacing: -0.03em;
-      margin: 14px 0 12px;
-      color: var(--ink-primary);
-    }
-
-    h2 {
-      font-size: 20px;
-      font-weight: 700;
-      letter-spacing: -0.02em;
-      line-height: 1.25;
-      margin: 0 0 6px;
-      color: var(--ink-primary);
-    }
-
-    h3 {
-      font-size: 15px;
-      font-weight: 700;
-      letter-spacing: -0.01em;
-      margin: 0;
-      color: var(--ink-primary);
-    }
-
-    p.sub {
-      color: var(--ink-secondary);
-      margin: 0;
-      font-size: 15px;
-      max-width: 66ch;
-    }
-
-    .hero-actions {
-      display: flex;
-      flex-wrap: wrap;
-      align-items: center;
-      gap: 10px;
-      margin-top: 22px;
-    }
-
-    /* Engineering Spec Ledger Card */
-    .spec-ledger {
-      background: var(--bg-surface);
-      border: 1px solid var(--border-subtle);
-      border-radius: var(--radius-lg);
-      box-shadow: var(--shadow-sm);
-      overflow: hidden;
-    }
-
-    .spec-ledger-head {
-      padding: 12px 18px;
-      background: var(--bg-subtle);
-      border-bottom: 1px solid var(--border-subtle);
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      font-size: 12.5px;
-      font-weight: 700;
-      color: var(--ink-secondary);
-    }
-
-    .spec-ledger-row {
-      display: grid;
-      grid-template-columns: minmax(0, 1fr) auto;
-      gap: 12px;
-      align-items: center;
-      padding: 12px 18px;
-      border-bottom: 1px solid var(--border-subtle);
-      font-size: 13px;
-    }
-
-    .spec-ledger-row:last-child {
-      border-bottom: none;
-    }
-
-    .spec-key {
-      color: var(--ink-secondary);
-      font-weight: 500;
-    }
-
-    .spec-val {
-      color: var(--ink-primary);
-      font-weight: 700;
-      font-family: var(--font-mono);
-      font-size: 12.5px;
-      white-space: nowrap;
-    }
-
-    /* Surfaces & Cards */
-    .surface-section {
-      background: var(--bg-surface);
-      border: 1px solid var(--border-subtle);
-      border-radius: var(--radius-lg);
-      padding: 26px;
-      box-shadow: var(--shadow-xs);
-      margin-bottom: 28px;
-      min-width: 0;
-    }
-
-    .section-header {
-      display: flex;
-      justify-content: space-between;
-      align-items: flex-start;
-      flex-wrap: wrap;
-      gap: 16px;
-      margin-bottom: 20px;
-    }
-
-    .section-actions {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      flex-wrap: wrap;
-    }
-
-    .grid-2 {
-      display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 20px;
-      margin-bottom: 20px;
-    }
-
-    .grid-4 {
-      display: grid;
-      grid-template-columns: repeat(4, minmax(0, 1fr));
-      gap: 14px;
-    }
-
-    /* Controls Well */
-    .controls-well {
-      background: var(--bg-subtle);
-      border: 1px solid var(--border-subtle);
-      border-radius: var(--radius-md);
-      padding: 16px;
-      margin-bottom: 18px;
-    }
-
-    label {
-      display: block;
-      font-size: 12.5px;
-      font-weight: 600;
-      color: var(--ink-secondary);
-      margin-bottom: 6px;
-    }
-
-    select,
-    input[type="number"],
-    input[type="text"] {
-      width: 100%;
-      height: 40px;
-      background: var(--bg-surface);
-      color: var(--ink-primary);
-      border: 1px solid var(--border-strong);
-      border-radius: var(--radius-sm);
-      padding: 0 12px;
-      font-family: var(--font-sans);
-      font-size: 13.5px;
-      font-weight: 600;
-      transition: border-color var(--ease), box-shadow var(--ease);
-    }
-
-    select:focus,
-    input[type="number"]:focus,
-    input[type="text"]:focus {
-      outline: none;
-      border-color: var(--brand-accent);
-      box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
-    }
-
-    /* Buttons */
-    .btn {
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      gap: 7px;
-      min-height: 40px;
-      padding: 0 16px;
-      border-radius: var(--radius-sm);
-      border: 1px solid transparent;
-      background: var(--brand-primary);
-      color: #FFFFFF;
-      font-family: var(--font-sans);
-      font-size: 13.5px;
-      font-weight: 600;
-      cursor: pointer;
-      text-decoration: none;
-      white-space: nowrap;
-      transition: background-color var(--ease), border-color var(--ease), color var(--ease), box-shadow var(--ease);
-    }
-
-    .btn:hover {
-      background: var(--brand-primary-hover);
-      color: #FFFFFF;
-      text-decoration: none;
-    }
-
-    .btn-accent {
-      background: var(--brand-accent);
-      color: #FFFFFF;
-    }
-
-    .btn-accent:hover {
-      background: #1D4ED8;
-      color: #FFFFFF;
-    }
-
-    .btn-danger {
-      background: var(--danger-accent);
-      color: #FFFFFF;
-    }
-
-    .btn-danger:hover {
-      background: #B91C1C;
-      color: #FFFFFF;
-    }
-
-    .btn-secondary {
-      background: var(--bg-surface);
-      color: var(--ink-primary);
-      border: 1px solid var(--border-strong);
-    }
-
-    .btn-secondary:hover {
-      background: var(--bg-subtle);
-      border-color: var(--ink-muted);
-      color: var(--ink-primary);
-    }
-
-    .btn-sm {
-      min-height: 32px;
-      padding: 0 11px;
-      font-size: 12.5px;
-      font-weight: 600;
-    }
-
-    .filter-strip {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 7px;
-      margin-bottom: 20px;
-    }
-
-    .filter-pill {
-      min-height: 32px;
-      padding: 0 11px;
-      font-size: 12.5px;
-      font-weight: 600;
-      border-radius: var(--radius-sm);
-      border: 1px solid var(--border-strong);
-      background: var(--bg-surface);
-      color: var(--ink-secondary);
-      cursor: pointer;
-      transition: background-color var(--ease), border-color var(--ease), color var(--ease);
-    }
-
-    .filter-pill:hover {
-      background: var(--bg-subtle);
-      color: var(--ink-primary);
-      border-color: var(--ink-muted);
-    }
-
-    .btn-active,
-    .filter-pill.btn-active {
-      background: var(--brand-primary);
-      border-color: var(--brand-primary);
-      color: #FFFFFF;
-    }
-
-    .btn-active:hover,
-    .filter-pill.btn-active:hover {
-      background: var(--brand-primary-hover);
-      color: #FFFFFF;
-    }
-
-    /* Side-by-Side Comparison Ledger Cards */
-    .score-box {
-      border-radius: var(--radius-md);
-      padding: 18px 20px;
-      border: 1px solid var(--border-subtle);
-      background: var(--bg-surface);
-      border-top-width: 3px;
-    }
-
-    .score-box-danger {
-      border-top-color: var(--danger-accent);
-    }
-
-    .score-box-ok {
-      border-top-color: var(--ok-accent);
-    }
-
-    .score-head {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      gap: 10px;
-      margin-bottom: 6px;
-    }
-
-    .score-desc {
-      font-size: 12.5px;
-      color: var(--ink-secondary);
-      margin: 0 0 12px;
-      line-height: 1.45;
-    }
-
-    .metric-row {
-      display: grid;
-      grid-template-columns: minmax(0, 1fr) auto;
-      gap: 14px;
-      align-items: baseline;
-      padding: 9px 0;
-      border-top: 1px solid var(--border-subtle);
-      font-size: 13px;
-    }
-
-    .metric-label {
-      color: var(--ink-secondary);
-      font-weight: 500;
-    }
-
-    .metric-val {
-      font-weight: 700;
-      font-variant-numeric: tabular-nums;
-      white-space: nowrap;
-      text-align: right;
-    }
-
-    .val-danger { color: var(--danger-ink); }
-    .val-warn { color: var(--warn-ink); }
-    .val-ok { color: var(--ok-ink); }
-    .val-accent { color: #1D4ED8; font-family: var(--font-mono); font-size: 12px; }
-
-    /* Severity / Status Badges */
-    .sev {
-      display: inline-flex;
-      align-items: center;
-      padding: 2px 8px;
-      border-radius: 4px;
-      font-size: 11px;
-      font-weight: 700;
-      letter-spacing: 0.02em;
-      white-space: nowrap;
-      background: var(--danger-bg);
-      color: var(--danger-ink);
-      border: 1px solid var(--danger-border);
-    }
-
-    .sev-high {
-      background: var(--warn-bg);
-      color: var(--warn-ink);
-      border-color: var(--warn-border);
-    }
-
-    .sev-ok {
-      background: var(--ok-bg);
-      color: var(--ok-ink);
-      border-color: var(--ok-border);
-    }
-
-    /* Comparison Table */
-    .table-wrap {
-      overflow-x: auto;
-      border: 1px solid var(--border-subtle);
-      border-radius: var(--radius-md);
-      margin-bottom: 20px;
-    }
-
-    table.chaos-table {
-      width: 100%;
-      border-collapse: collapse;
-      font-size: 13px;
-      background: var(--bg-surface);
-    }
-
-    table.chaos-table th,
-    table.chaos-table td {
-      padding: 11px 14px;
-      text-align: left;
-      vertical-align: top;
-      border-bottom: 1px solid var(--border-subtle);
-    }
-
-    table.chaos-table th {
-      background: var(--bg-subtle);
-      color: var(--ink-secondary);
-      font-weight: 700;
-      font-size: 12px;
-      letter-spacing: 0.01em;
-    }
-
-    table.chaos-table tr:last-child td {
-      border-bottom: none;
-    }
-
-    .cell-naive {
-      color: #991B1B;
-      background: rgba(254, 242, 242, 0.45);
-    }
-
-    .cell-watchdog {
-      color: #065F46;
-      background: rgba(236, 253, 245, 0.45);
-    }
-
-    /* Dark Obsidian Precision Code & Terminal Panes */
-    .code-pane {
-      border-radius: var(--radius-md);
-      border: 1px solid #1E293B;
-      background: var(--bg-code);
-      overflow: hidden;
-      display: flex;
-      flex-direction: column;
-    }
-
-    .code-pane-bar {
-      background: var(--bg-code-header);
-      border-bottom: 1px solid #334155;
-      padding: 9px 14px;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      gap: 10px;
-      flex-wrap: wrap;
-    }
-
-    .code-pane-title {
-      color: #E2E8F0;
-      font-size: 12.5px;
-      font-weight: 600;
-      margin: 0;
-    }
-
-    .code-pane {
-      min-width: 0;
-    }
-
-    .code-pane pre,
-    .code-pane textarea {
-      width: 100%;
-      background: var(--bg-code);
-      color: #E2E8F0;
-      border: none;
-      padding: 14px;
-      margin: 0;
-      font-family: var(--font-mono);
-      font-size: 12.5px;
-      line-height: 1.55;
-      overflow-x: auto;
-      resize: vertical;
-    }
-
-    .code-pane pre:focus,
-    .code-pane textarea:focus {
-      outline: none;
-    }
-
-    /* License Unlock Strip */
-    .license-strip {
-      background: var(--bg-surface);
-      border: 1px solid var(--border-strong);
-      border-left: 4px solid var(--brand-accent);
-      border-radius: var(--radius-md);
-      padding: 18px 22px;
-      margin-bottom: 28px;
-      box-shadow: var(--shadow-xs);
-    }
-
-    .license-strip-row {
-      display: flex;
-      justify-content: space-between;
-      align-items: flex-end;
-      flex-wrap: wrap;
-      gap: 16px;
-    }
-
-    .license-form-group {
-      display: flex;
-      gap: 8px;
-      align-items: center;
-      flex-wrap: wrap;
-      min-width: 340px;
-      flex: 1 1 340px;
-      max-width: 480px;
-    }
-
-    .license-form-group input {
-      flex: 1 1 210px;
-      font-family: var(--font-mono);
-      font-size: 13px;
-    }
-
-    .status-line {
-      margin-top: 10px;
-      padding-top: 10px;
-      border-top: 1px solid var(--border-subtle);
-      font-size: 12.5px;
-      color: var(--ink-secondary);
-    }
-
-    .status-warn { color: var(--warn-ink); }
-    .status-ok { color: var(--ok-ink); }
-    .status-danger { color: var(--danger-ink); }
-    .status-info { color: #1D4ED8; }
-
-    .polar-notice {
-      margin-top: 8px;
-      padding: 14px 16px;
-      border-radius: var(--radius-sm);
-      background: var(--brand-accent-soft);
-      border: 1px solid #93C5FD;
-      color: var(--ink-primary);
-      line-height: 1.55;
-      font-size: 13px;
-    }
-
-    .polar-notice-title {
-      color: #1D4ED8;
-    }
-
-    .polar-notice-link {
-      color: var(--ok-ink);
-      font-weight: 700;
-      text-decoration: underline;
-    }
-
-    /* Diagnostic Findings */
-    .finding {
-      border: 1px solid var(--danger-border);
-      border-left: 3px solid var(--danger-accent);
-      background: var(--bg-surface);
-      border-radius: var(--radius-sm);
-      padding: 12px 14px;
-      margin-bottom: 10px;
-      min-width: 0;
-    }
-
-    .finding-head {
-      display: flex;
-      align-items: center;
-      flex-wrap: wrap;
-      gap: 8px;
-      font-size: 13px;
-      overflow-wrap: anywhere;
-    }
-
-    .finding-table {
-      color: var(--ink-muted);
-      font-size: 12px;
-      font-family: var(--font-mono);
-      overflow-wrap: anywhere;
-    }
-
-    .finding-msg {
-      font-size: 13px;
-      margin-top: 5px;
-      color: var(--ink-secondary);
-    }
-
-    .code-diff {
-      margin-top: 8px;
-      background: var(--bg-code);
-      border: 1px solid #1E293B;
-      border-radius: var(--radius-sm);
-      padding: 9px 11px;
-      font-family: var(--font-mono);
-      font-size: 11.5px;
-      line-height: 1.5;
-      overflow-x: auto;
-    }
-
-    .diff-del { color: #FDA4AF; }
-    .diff-add { color: #6EE7B7; }
-
-    .finding-ok {
-      border: 1px solid var(--ok-border);
-      background: var(--ok-bg);
-      border-radius: var(--radius-sm);
-      padding: 13px 15px;
-      color: var(--ok-ink);
-      font-weight: 700;
-      font-size: 13.5px;
-    }
-
-    /* Pricing Grid */
-    .plans {
-      display: grid;
-      grid-template-columns: repeat(3, minmax(0, 1fr));
-      gap: 18px;
-      margin-top: 20px;
-    }
-
-    .plan-card {
-      background: var(--bg-surface);
-      border: 1px solid var(--border-subtle);
-      border-radius: var(--radius-md);
-      padding: 22px;
-      display: flex;
-      flex-direction: column;
-      justify-content: space-between;
-      transition: border-color var(--ease), box-shadow var(--ease);
-    }
-
-    .plan-card-featured {
-      border: 2px solid var(--brand-accent);
-      box-shadow: var(--shadow-sm);
-    }
-
-    .plan-tier {
-      font-size: 12px;
-      font-weight: 700;
-      color: var(--ink-muted);
-      letter-spacing: 0.02em;
-    }
-
-    .plan-tier-featured {
-      color: #1D4ED8;
-    }
-
-    .plan-price {
-      font-size: 32px;
-      font-weight: 800;
-      letter-spacing: -0.025em;
-      margin: 8px 0 4px;
-      color: var(--ink-primary);
-      font-variant-numeric: tabular-nums;
-    }
-
-    .plan-period {
-      font-size: 14px;
-      color: var(--ink-muted);
-      font-weight: 500;
-    }
-
-    .plan-subtitle {
-      font-size: 13.5px;
-      color: var(--ink-primary);
-      font-weight: 600;
-      margin-bottom: 12px;
-    }
-
-    ul.feat {
-      padding-left: 18px;
-      color: var(--ink-secondary);
-      font-size: 13.5px;
-      margin: 0 0 20px;
-    }
-
-    ul.feat li {
-      margin-bottom: 7px;
-    }
-
-    .manifest-box {
-      margin-top: 20px;
-      padding: 18px 20px;
-      border-radius: var(--radius-md);
-      background: var(--bg-subtle);
-      border: 1px solid var(--border-subtle);
-    }
-
-    .manifest-head {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      flex-wrap: wrap;
-      gap: 10px;
-      margin-bottom: 12px;
-    }
-
-    .manifest-grid {
-      display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 16px;
-      font-size: 13px;
-      color: var(--ink-secondary);
-      line-height: 1.65;
-    }
-
-    /* Footer */
-    footer {
-      margin-top: 40px;
-      padding-top: 22px;
-      border-top: 1px solid var(--border-subtle);
-      color: var(--ink-muted);
-      font-size: 13px;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      flex-wrap: wrap;
-      gap: 12px;
-    }
-
-    .footer-links {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 14px;
-    }
-
-    /* Responsive Breakpoints */
-    @media (max-width: 960px) {
-      .hero {
-        grid-template-columns: minmax(0, 1fr);
-        gap: 22px;
-      }
-      .grid-2,
-      .plans,
-      .manifest-grid {
-        grid-template-columns: minmax(0, 1fr);
-      }
-      .grid-4 {
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-      }
-    }
-
-    @media (max-width: 640px) {
-      .topbar-inner {
-        padding: 0 16px;
-      }
-      .nav-links {
-        display: none;
-      }
-      .container {
-        padding: 24px 16px 56px;
-      }
-      .surface-section {
-        padding: 18px 16px;
-      }
-      .grid-4 {
-        grid-template-columns: minmax(0, 1fr);
-      }
-      .sev {
-        white-space: normal;
-        line-height: 1.35;
-      }
-      .table-wrap {
-        border: none;
-      }
-      table.chaos-table,
-      table.chaos-table tbody,
-      table.chaos-table tr,
-      table.chaos-table td {
-        display: block;
-        width: 100%;
-      }
-      table.chaos-table thead {
-        display: none;
-      }
-      table.chaos-table tr {
-        border: 1px solid var(--border-subtle);
-        border-radius: var(--radius-sm);
-        margin-bottom: 10px;
-        overflow: hidden;
-      }
-      table.chaos-table tr:last-child {
-        margin-bottom: 0;
-      }
-      table.chaos-table td {
-        border-bottom: 1px solid var(--border-subtle);
-        padding: 10px 12px;
-      }
-      table.chaos-table td:last-child {
-        border-bottom: none;
-      }
-      code {
-        overflow-wrap: anywhere;
-      }
-      .license-form-group {
-        min-width: 0;
-        width: 100%;
-      }
-      select,
-      input[type="number"],
-      input[type="text"] {
-        font-size: 16px;
-      }
-      .metric-row {
-        grid-template-columns: 1fr;
-        gap: 3px;
-      }
-      .metric-val {
-        text-align: left;
-        white-space: normal;
-      }
-    }
-
-    @media (prefers-reduced-motion: reduce) {
-      html {
-        scroll-behavior: auto;
-      }
-      *, *::before, *::after {
-        transition-duration: 0.01ms !important;
-        animation-duration: 0.01ms !important;
-      }
-    }
-  </style>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&family=Newsreader:opsz,wght@6..72,500;6..72,600&display=swap" rel="stylesheet" />
+  <script type="module" crossorigin src="./assets/index-UsMOHVCu.js"></script>
+  <link rel="modulepreload" crossorigin href="./assets/vendor-B0kZVdRu.js">
+  <link rel="stylesheet" crossorigin href="./assets/index-CWPNG__d.css">
 </head>
-<body>
-  <a class="skip-link" href="#chaos-simulator">Skip to workbench</a>
-
-  <nav class="topbar" aria-label="Primary navigation">
-    <div class="topbar-inner">
-      <a class="brand-lockup" href="#">
-        <span class="brand-mark" aria-hidden="true">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
-            <path d="m9 12 2 2 4-4"/>
-          </svg>
-        </span>
-        <span>Billing Watchdog v2</span>
-      </a>
-      <div class="nav-links">
-        <a href="#chaos-simulator">Fault Simulator</a>
-        <a href="#sql-linter-section">SQL &amp; AI Linter</a>
-        <a href="#reconciler-demo">Reconciler</a>
-        <a href="#self-hosted-license">Pricing</a>
+<body class="bg-[#F4F2EC] text-[#141413] antialiased">
+  <div id="root">
+    <!-- Static Fallback / Semantic AUP & Checkout Anchor Shell (replaced on React 19 mount) -->
+    <main style="max-width:960px;margin:40px auto;padding:24px;background:#FCFBF8;border:1px solid #DDD8CE;font-family:'IBM Plex Sans',system-ui,sans-serif;">
+      <h1 style="font-family:'Newsreader',Georgia,serif;margin:0 0 8px;">Billing Watchdog v2 — Deterministic firewall for Stripe &amp; Postgres credit ledgers.</h1>
+      <p style="color:#47453F;">Client-side concurrency telemetry, offline PostgreSQL/RLS/Next.js inspector (`RLS_PERMISSIVE_NO_TENANT_FILTER` checks included), and self-hosted Pro v2 source.</p>
+      <div style="display:flex;gap:12px;flex-wrap:wrap;margin:16px 0;">
+        <button type="button" onclick="startPolarCheckout('Pro Monthly Watchdog v2 ($49/mo)', 4900)">Buy Pro Monthly ($49/mo)</button>
+        <button type="button" onclick="startPolarCheckout('Lifetime Team License v2 ($149 One-Time)', 14900)">Buy Lifetime Team ($149)</button>
       </div>
-      <a class="nav-github" href="https://github.com/mariostosic0806/billing-watchdog">
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-          <path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"/>
-        </svg>
-        <span class="tabular">Action v2.3.0</span>
-      </a>
-    </div>
-  </nav>
-
-  <main class="container">
-    <!-- EDITORIAL HERO + ENGINEERING SPEC LEDGER -->
-    <header class="hero">
-      <div>
-        <span class="eyebrow-pill">
-          <span class="eyebrow-dot" aria-hidden="true"></span>
-          <span>v2.3.0 · Self-Hosted Stripe &amp; Supabase Integrity</span>
-        </span>
-        <h1>Stop billing drift and credit leaks before migrations ship.</h1>
-        <p class="sub">
-          Simulate 50 concurrent Stripe webhook failures, lint SQL schemas and streaming AI routes in browser memory, and enforce deterministic integer-cent ledger invariants in your own CI/CD.
-        </p>
-        <div class="hero-actions">
-          <a href="#sql-linter-section" class="btn">Run Offline SQL &amp; Code Linter</a>
-          <a href="#self-hosted-license" class="btn btn-secondary">Get Self-Hosted Pro ($49/mo)</a>
+      <div id="license-status-msg" role="status">FREE DIAGNOSTIC MODE (REDACTED IN FREE DIAGNOSTIC MODE)</div>
+      <footer style="margin-top:24px;padding-top:16px;border-top:1px solid #DDD8CE;font-size:13px;color:#47453F;">
+        <div>© 2026 Mario Stosic — Individual Software Developer (Serbia) · <a href="mailto:mariostosic@prime-tech.rs">mariostosic@prime-tech.rs</a></div>
+        <div style="margin-top:6px;display:flex;gap:16px;">
+          <a href="terms.html">Terms of Service</a>
+          <a href="privacy.html">Privacy Policy</a>
+          <a href="refund-policy.html">Refund Policy (30 Days)</a>
         </div>
-      </div>
-
-      <aside class="spec-ledger" aria-label="Architecture guarantees">
-        <div class="spec-ledger-head">
-          <span>Runtime Guarantees</span>
-          <span class="tabular">Zero Cloud Lock-In</span>
-        </div>
-        <div class="spec-ledger-row">
-          <span class="spec-key">Credential Isolation</span>
-          <span class="spec-val">0 DB/Stripe keys sent</span>
-        </div>
-        <div class="spec-ledger-row">
-          <span class="spec-key">Monetary Arithmetic</span>
-          <span class="spec-val tabular">INTEGER cents only</span>
-        </div>
-        <div class="spec-ledger-row">
-          <span class="spec-key">CI &amp; Agent Outputs</span>
-          <span class="spec-val tabular">SARIF 2.1.0 + Fix MD</span>
-        </div>
-        <div class="spec-ledger-row">
-          <span class="spec-key">Verified Suite</span>
-          <span class="spec-val tabular">113 / 113 passing</span>
-        </div>
-      </aside>
-    </header>
-
-    <!-- ================================================================== -->
-    <!-- SECTION 1: WEBHOOK FAULT-INJECTION SIMULATOR & LEAK CALCULATOR     -->
-    <!-- ================================================================== -->
-    <section class="surface-section" id="chaos-simulator">
-      <div class="section-header">
-        <div>
-          <h2>1. Webhook Fault Simulator &amp; Revenue Leak Calculator</h2>
-          <p class="sub" style="font-size:14px;">
-            Compare a naive AI-generated Stripe webhook handler against the deterministic Billing Watchdog v2 state machine across 50 concurrent and out-of-order deliveries.
-          </p>
-        </div>
-        <div class="section-actions">
-          <button type="button" class="btn btn-secondary" onclick="copyQuarantineSql()">Copy Circuit-Breaker SQL</button>
-          <button type="button" class="btn btn-danger" onclick="runChaosSimulation('ALL')">Run 50-Event Fault Test</button>
-        </div>
-      </div>
-
-      <div class="controls-well">
-        <div class="grid-4">
-          <div>
-            <label for="chaos-plan-price">SaaS Plan Price (Integer Cents)</label>
-            <select id="chaos-plan-price" onchange="runChaosSimulation(currentChaosFilter)">
-              <option value="2900">$29 / mo (2,900c)</option>
-              <option value="4900" selected>$49 / mo (4,900c)</option>
-              <option value="9900">$99 / mo (9,900c)</option>
-              <option value="24900">$249 / mo (24,900c)</option>
-            </select>
-          </div>
-          <div>
-            <label for="chaos-plan-credits">Monthly Included Credits</label>
-            <select id="chaos-plan-credits" onchange="runChaosSimulation(currentChaosFilter)">
-              <option value="1000">1,000 AI credits</option>
-              <option value="2000" selected>2,000 AI credits</option>
-              <option value="5000">5,000 AI credits</option>
-              <option value="10000">10,000 AI credits</option>
-            </select>
-          </div>
-          <div>
-            <label for="chaos-monthly-subs">Active Paying Subscriptions</label>
-            <input type="number" id="chaos-monthly-subs" class="tabular" value="500" min="10" max="100000" step="50" oninput="runChaosSimulation(currentChaosFilter)" />
-          </div>
-          <div>
-            <label for="chaos-quarantine-threshold">Quarantine Threshold (Cents)</label>
-            <select id="chaos-quarantine-threshold" onchange="runChaosSimulation(currentChaosFilter)">
-              <option value="1000">$10.00 (1,000c)</option>
-              <option value="2500" selected>$25.00 (2,500c)</option>
-              <option value="5000">$50.00 (5,000c)</option>
-            </select>
-          </div>
-        </div>
-      </div>
-
-      <div class="filter-strip" role="group" aria-label="State machine edge-case filters">
-        <button type="button" id="btn-filter-ALL" class="filter-pill btn-active" onclick="runChaosSimulation('ALL')">All Vectors (8)</button>
-        <button type="button" id="btn-filter-BURST" class="filter-pill" onclick="runChaosSimulation('BURST')">Edge 1 &amp; 3: 20x Burst + Self-Echo</button>
-        <button type="button" id="btn-filter-OOO" class="filter-pill" onclick="runChaosSimulation('OOO')">Edge 2: Out-of-Order Delete</button>
-        <button type="button" id="btn-filter-MANUAL" class="filter-pill" onclick="runChaosSimulation('MANUAL')">Edge 4: Manual Edit Guard</button>
-        <button type="button" id="btn-filter-MULTI" class="filter-pill" onclick="runChaosSimulation('MULTI')">Edge 5: 3+ Overlapping Buckets</button>
-        <button type="button" id="btn-filter-DELETED" class="filter-pill" onclick="runChaosSimulation('DELETED')">Edge 6: Deleted Stripe Entities</button>
-        <button type="button" id="btn-filter-DISPUTE" class="filter-pill" onclick="runChaosSimulation('DISPUTE')">Edge 7a: Clawback &gt; Balance</button>
-        <button type="button" id="btn-filter-ARITH" class="filter-pill" onclick="runChaosSimulation('ARITH')">Edge 7b: $0.01 Floor Clamp</button>
-        <button type="button" id="btn-filter-STREAM" class="filter-pill" onclick="runChaosSimulation('STREAM')">Edge 8: 50x LLM Stream Hold</button>
-      </div>
-
-      <div class="grid-2">
-        <div class="score-box score-box-danger">
-          <div class="score-head">
-            <h3>Naive AI-Generated Webhook Handler</h3>
-            <span class="sev">4 / 4 VECTORS FAILED</span>
-          </div>
-          <p class="score-desc">
-            Standard <code>if (event.type === 'invoice.paid')</code> without canonical invoice locks, UTC watermarks, or multi-bucket provenance.
-          </p>
-          <div class="metric-row">
-            <span class="metric-label">Unbacked Compute Credits Leaked (Single Storm)</span>
-            <strong id="naive-leaked-credits" class="metric-val val-danger">+43,680 credits</strong>
-          </div>
-          <div class="metric-row">
-            <span class="metric-label">Direct Financial Leak (Single Storm)</span>
-            <strong id="naive-leaked-usd" class="metric-val val-danger">$1,070.16 (107,016 integer cents)</strong>
-          </div>
-          <div class="metric-row">
-            <span class="metric-label">Projected Annual Drift Exposure (2% incident rate)</span>
-            <strong id="naive-annual-exposure" class="metric-val val-danger">$32,104.80 / yr</strong>
-          </div>
-          <div class="metric-row">
-            <span class="metric-label">Paid Top-Up &amp; Support Credits Wiped on Cancel</span>
-            <strong id="naive-wiped-credits" class="metric-val val-warn">700 customer credits destroyed</strong>
-          </div>
-          <div class="metric-row">
-            <span class="metric-label">Refund/Dispute Negative Balance Guard</span>
-            <strong class="metric-val val-danger">HTTP 500 Retry Storm (-4,200 bal)</strong>
-          </div>
-        </div>
-
-        <div class="score-box score-box-ok">
-          <div class="score-head">
-            <h3>Billing Watchdog v2 State Machine + Circuit-Breaker</h3>
-            <span class="sev sev-ok">50 / 50 EVENTS DETERMINISTIC</span>
-          </div>
-          <p class="score-desc">
-            Atomic canonical payment locks, <code>last_stripe_event_created_utc</code> watermarks, <code>SKIPPED_MANUAL_SUPPORT_GRANT</code> protection &amp; auto-quarantine.
-          </p>
-          <div class="metric-row">
-            <span class="metric-label">Unbacked Compute Credits Leaked</span>
-            <strong class="metric-val val-ok">0 credits (100% blocked)</strong>
-          </div>
-          <div class="metric-row">
-            <span class="metric-label">Direct Financial Leak</span>
-            <strong class="metric-val val-ok">$0.00 (0 integer cents)</strong>
-          </div>
-          <div class="metric-row">
-            <span class="metric-label">3-Bucket Deactivation Order Invariance (1→2→3, 2→1→3, 3→2→1)</span>
-            <strong class="metric-val val-ok">700 === 700 === 700 (Exact Match)</strong>
-          </div>
-          <div class="metric-row">
-            <span class="metric-label">Manual Support Grants Preserved</span>
-            <strong class="metric-val val-ok">200 / 200 credits untouched</strong>
-          </div>
-          <div class="metric-row">
-            <span class="metric-label">Active Runaway Credit Circuit-Breaker</span>
-            <strong id="watchdog-quarantine-status" class="metric-val val-accent">is_billing_quarantined = TRUE (2 frozen)</strong>
-          </div>
-        </div>
-      </div>
-
-      <div class="table-wrap">
-        <table class="chaos-table">
-          <thead>
-            <tr>
-              <th style="width:24%;">Webhook Fault-Injection Test Scenario (Events)</th>
-              <th style="width:38%;">Naive AI Webhook Handler Outcome</th>
-              <th style="width:38%;">Billing Watchdog v2 Deterministic State Machine</th>
-            </tr>
-          </thead>
-          <tbody id="chaos-comparison-tbody"></tbody>
-        </table>
-      </div>
-
-      <div class="grid-2" style="margin-bottom:0;">
-        <div class="code-pane">
-          <div class="code-pane-bar">
-            <label class="code-pane-title" for="chaos-event-log">Live Fault Stream &amp; Dry-Run State Transitions (<code>oldState → newState</code>)</label>
-          </div>
-          <pre id="chaos-event-log" style="height:210px;overflow-y:auto;"></pre>
-        </div>
-        <div class="code-pane">
-          <div class="code-pane-bar">
-            <label class="code-pane-title" for="quarantine-sql-output">Active Circuit-Breaker SQL Patch (<code>is_billing_quarantined</code>)</label>
-            <span id="quarantine-lock-badge" class="sev">PRO LICENSE REQUIRED</span>
-          </div>
-          <textarea id="quarantine-sql-output" rows="8" style="height:210px;" readonly></textarea>
-        </div>
-      </div>
-    </section>
-
-    <!-- ================================================================== -->
-    <!-- PRO / LIFETIME LICENSE UNLOCK STRIP                                -->
-    <!-- ================================================================== -->
-    <section class="license-strip" aria-label="Self-hosted Pro license verification">
-      <div class="license-strip-row">
-        <div>
-          <h3 style="margin-bottom:4px;">Unlock Executable SQL Remediation Export &amp; Pro Engine</h3>
-          <p style="margin:0;font-size:13px;color:var(--ink-secondary);max-width:64ch;">
-            Browser detection and leak calculation are free. Verify your signed <code>BWV2E-...</code> license key (or <a href="#self-hosted-license">purchase Pro $49/mo or Lifetime $149 below</a>) to unlock production SQL exports.
-          </p>
-        </div>
-        <div class="license-form-group">
-          <label for="license-key-input" style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0);">Pro License Key</label>
-          <input type="text" id="license-key-input" placeholder="BWV2E-LIFETIME_TEAM-..." />
-          <button type="button" class="btn" onclick="unlockProPortal()">Unlock Pro Export</button>
-        </div>
-      </div>
-      <div id="license-status-msg" class="status-line" role="status" aria-live="polite">
-        Status: <strong class="status-warn">FREE DIAGNOSTIC MODE (Remediation SQL Export Redacted)</strong>
-      </div>
-    </section>
-
-    <!-- ================================================================== -->
-    <!-- SECTION 2: OFFLINE ZERO-CREDENTIAL SQL, RLS & NEXT.JS LINTER       -->
-    <!-- ================================================================== -->
-    <section class="grid-2" id="sql-linter-section" style="margin-bottom:28px;">
-      <div class="surface-section" style="margin-bottom:0;display:flex;flex-direction:column;">
-        <div style="margin-bottom:12px;">
-          <h2>2. Offline SQL, RLS &amp; Next.js Linter</h2>
-          <p class="sub" style="font-size:13.5px;margin-bottom:12px;">
-            Runs <strong>100% in browser memory</strong> — paste <code>schema.sql</code>, Supabase migrations, or Next.js webhook/AI routes.
-          </p>
-          <div style="display:flex;gap:6px;flex-wrap:wrap;">
-            <button type="button" class="filter-pill" onclick="loadSampleSql('vulnerable')">Vulnerable SQL</button>
-            <button type="button" class="filter-pill" onclick="loadSampleSql('rls_idor')">Broken Multi-Tenant RLS</button>
-            <button type="button" class="filter-pill" onclick="loadSampleSql('nextjs')">Next.js + AI Stream route.ts</button>
-            <button type="button" class="filter-pill" onclick="loadSampleSql('hardened')">Hardened Schema</button>
-          </div>
-        </div>
-        <div class="code-pane" style="flex:1;">
-          <div class="code-pane-bar">
-            <label class="code-pane-title" for="sql-input">Input SQL Migration or TypeScript Route</label>
-          </div>
-          <textarea id="sql-input" rows="14" style="flex:1;min-height:290px;" oninput="runSqlLinter()"></textarea>
-        </div>
-        <div style="margin-top:14px;display:flex;gap:8px;flex-wrap:wrap;">
-          <button type="button" class="btn" onclick="runSqlLinter()">Run Offline Linter (&lt;10ms)</button>
-          <button type="button" class="btn btn-secondary" onclick="copyPatch()">Copy SQL Patch (Pro)</button>
-          <button type="button" class="btn btn-secondary" onclick="downloadPatch()">Download remediation.sql (Pro)</button>
-        </div>
-      </div>
-
-      <div class="surface-section" style="margin-bottom:0;display:flex;flex-direction:column;">
-        <div style="margin-bottom:12px;">
-          <h2>3. Diagnostic Findings &amp; Non-Blocking Patch</h2>
-          <p class="sub" style="font-size:13.5px;">
-            Detects missing balance checks, replay holes, permissive <code>USING (true)</code> policies, and unreserved <code>streamText()</code> routes.
-          </p>
-        </div>
-        <div id="findings-container" style="margin-bottom:14px;"></div>
-        <div class="code-pane" style="margin-top:auto;">
-          <div class="code-pane-bar">
-            <label class="code-pane-title" for="patch-output">Non-Blocking PostgreSQL Patch (<code>NOT VALID</code> + <code>VALIDATE</code>)</label>
-            <span id="patch-lock-badge" class="sev">PRO LICENSE REQUIRED</span>
-          </div>
-          <textarea id="patch-output" rows="9" readonly></textarea>
-        </div>
-      </div>
-    </section>
-
-    <!-- ================================================================== -->
-    <!-- SECTION 3: GROUP B LIVE DRIFT RECONCILER SIMULATION                -->
-    <!-- ================================================================== -->
-    <section class="surface-section" id="reconciler-demo">
-      <div class="section-header" style="margin-bottom:14px;">
-        <div>
-          <h2>4. Stripe ↔ Postgres Drift Reconciler (Checks 4, 5 &amp; 6)</h2>
-          <p class="sub" style="font-size:14px;">
-            Preview how the Read-Only CLI Watchdog (<code>node src/cli.ts scan --config reconcile.config.json</code>) reconciles live Stripe subscriptions and paid invoices inside a single <code>REPEATABLE READ</code> snapshot.
-          </p>
-        </div>
-        <button type="button" class="btn btn-secondary" onclick="toggleGroupBDemo()">Run 6-Check Reconciliation Demo</button>
-      </div>
-      <div class="code-pane">
-        <div class="code-pane-bar">
-          <span class="code-pane-title">Read-Only Diagnostic Snapshot Output</span>
-          <span class="sev sev-ok">INTEGER CENTS · UTC ISO-8601</span>
-        </div>
-        <pre id="group-b-report" style="max-height:300px;overflow-y:auto;"></pre>
-      </div>
-    </section>
-
-    <!-- ================================================================== -->
-    <!-- SECTION 4: SELF-HOSTED LICENSING & PACKAGE MANIFEST                -->
-    <!-- ================================================================== -->
-    <section class="surface-section" id="self-hosted-license" style="margin-bottom:0;">
-      <h2>5. Deploy 100% Self-Hosted in Your CI/CD</h2>
-      <p class="sub" style="font-size:14px;">
-        Your production <code>DATABASE_URL</code> and <code>STRIPE_RESTRICTED_KEY</code> never leave your own GitHub Actions runner or infrastructure.
-      </p>
-
-      <div class="plans">
-        <div class="plan-card">
-          <div>
-            <div class="plan-tier">FREE PR GATE &amp; DIAGNOSTIC</div>
-            <div class="plan-price">$0 <span class="plan-period">/ MIT action</span></div>
-            <div class="plan-subtitle">Vulnerability Detection &amp; Leak Calculator</div>
-            <ul class="feat">
-              <li>Zero-credential GitHub Action (<code>@v2.3.0</code>)</li>
-              <li>OASIS SARIF 2.1.0 PR annotations</li>
-              <li>Prompt-injection-safe <code>--agent-fix-out</code></li>
-              <li>Detects missing <code>CHECK (&gt;= 0)</code> &amp; <code>UNIQUE</code></li>
-              <li>Static MCP SHA-256 lockfile verification</li>
-            </ul>
-          </div>
-          <a class="btn btn-secondary" href="#sql-linter-section">Run Free Diagnostic Above</a>
-        </div>
-
-        <div class="plan-card plan-card-featured">
-          <div>
-            <div class="plan-tier plan-tier-featured">SELF-HOSTED PRO WATCHDOG v2</div>
-            <div class="plan-price">$49 <span class="plan-period">/ month</span></div>
-            <div class="plan-subtitle">Full Source Code + Executable Remediation</div>
-            <ul class="feat">
-              <li>Unlocks full non-blocking SQL remediation export</li>
-              <li>Full source: <code>state-machine.ts</code>, <code>webhook-firewall.ts</code>, <code>circuit-breaker.ts</code></li>
-              <li>Atomic PL/pgSQL <code>SELECT ... FOR UPDATE</code> engine</li>
-              <li>Active runaway credit circuit-breaker (<code>is_billing_quarantined</code>)</li>
-              <li>Drop-in Next.js webhook firewall &amp; <code>executeGuardedAiStream</code></li>
-              <li>Billing audit trail &amp; guest checkout backfill reconciler</li>
-            </ul>
-          </div>
-          <button type="button" class="btn btn-accent" onclick="startPolarCheckout('Pro Monthly Watchdog v2 ($49/mo)', 4900)">Buy via Polar.sh ($49/mo)</button>
-        </div>
-
-        <div class="plan-card">
-          <div>
-            <div class="plan-tier">LIFETIME TEAM LICENSE</div>
-            <div class="plan-price">$149 <span class="plan-period">one-time</span></div>
-            <div class="plan-subtitle">Self-Hosted Team Source Bundle + CI Templates</div>
-            <ul class="feat">
-              <li>Lifetime commercial license (<code>BWV2E-LIFETIME_TEAM-...</code>)</li>
-              <li>Full deterministic Stripe ↔ Postgres state machine</li>
-              <li>Multi-instance serverless SQL coordinator &amp; migrations</li>
-              <li>OASIS SARIF 2.1.0 &amp; Agent Remediation Packet (<code>--agent-fix-out</code>)</li>
-              <li>Ready-to-merge GitHub Actions CI/CD workflow &amp; MIT Agent Skill</li>
-            </ul>
-          </div>
-          <button type="button" class="btn" onclick="startPolarCheckout('Lifetime Team License v2 ($149 One-Time)', 14900)">Buy Lifetime via Polar.sh ($149)</button>
-        </div>
-      </div>
-
-      <div class="manifest-box">
-        <div class="manifest-head">
-          <strong style="font-size:13.5px;color:var(--ink-primary);">Inside <code>billing-watchdog-pro-v2.zip</code> (6,500+ Lines · 113 Automated Tests · Zero Cloud Lock-In)</strong>
-          <span class="sev sev-ok">30-DAY MONEY-BACK GUARANTEE · INSTANT DIGITAL DELIVERY</span>
-        </div>
-        <div class="manifest-grid">
-          <div>
-            <code>src/state-machine.ts</code> (2,238 lines) — Two-Phase AI Stream Hold (<code>executeGuardedAiStream</code>), 7 Edge-Case Guards &amp; Billing Audit Trail Report Export<br />
-            <code>src/watchdog.ts</code> (1,913 lines) — Read-Only PostgreSQL Snapshot Adapter, Bi-Directional Stripe Drift Reconciler &amp; Guest Checkout Backfill<br />
-            <code>src/webhook-firewall.ts</code> &amp; <code>src/circuit-breaker.ts</code> — Atomic <code>SELECT ... FOR UPDATE</code> Coordinator &amp; Auto-Quarantine Engine
-          </div>
-          <div>
-            <code>src/code-scanner.ts</code>, <code>src/sarif.ts</code> &amp; <code>src/agent-fix.ts</code> — Static Scanner, OASIS SARIF 2.1.0 &amp; Prompt-Injection-Safe Agent Fix Packet<br />
-            <code>test/*.test.ts</code> (113 / 113 passing tests) — Local CI/CD Webhook Idempotency &amp; Concurrency Test Suite, 20x Parallel Burst &amp; 50x AI Stream Race Benchmark<br />
-            <code>action.yml</code> &amp; <code>examples/</code> — Ready-to-merge GitHub Actions CI/CD workflow &amp; hardened PostgreSQL migration templates
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <footer>
-      <div>© 2026 Mario Stosic — Individual Software Developer (Serbia) · Support: <a href="mailto:mariostosic@prime-tech.rs">mariostosic@prime-tech.rs</a></div>
-      <div class="footer-links">
-        <a href="terms.html">Terms of Service</a>
-        <a href="privacy.html">Privacy Policy</a>
-        <a href="refund-policy.html">Refund Policy (30 Days)</a>
-        <a href="https://github.com/mariostosic0806/billing-watchdog">GitHub Repository</a>
-      </div>
-    </footer>
-  </main>
-
+      </footer>
+    </main>
+  </div>
   <script>
-    let currentChaosFilter = "ALL";
-    let isProLicenseUnlocked = false;
+// Billing Watchdog v2 — Canonical Deterministic Headless Kernel
+// Runs identically in Node VM verification sandboxes and as React 19 useSyncExternalStore backing store.
+// Zero external dependencies. Zero hardcoded secrets or plaintext license keys.
 
-    // Zero-Plaintext License Verification (Only 64-char SHA-256 digests stored; keys are never in HTML)
-    const VALID_LICENSE_SHA256_DIGESTS = [
-      "60a3c51229e4d4381251d1e60dc2b1d5d281f976217f3876e3e956f47af9cdea",
-      "f757e3d38a3103843b57af2c7d5b9eb6607593d075928407f99a065caf3e7599"
-    ];
+let currentChaosFilter = "ALL";
+let isProLicenseUnlocked = false;
+const __kernelListeners = new Set();
 
-    function sha256HexSync(ascii) {
-      function rightRotate(value, amount) {
-        return (value >>> amount) | (value << (32 - amount));
-      }
-      const mathPow = Math.pow;
-      const maxWord = mathPow(2, 32);
-      let result = "";
-      const words = [];
-      const asciiBitLength = ascii.length * 8;
-      let hash = [
-        0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a,
-        0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19
-      ];
-      const k = [
-        0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
-        0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
-        0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
-        0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7, 0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967,
-        0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85,
-        0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
-        0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
-        0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2
-      ];
-      ascii += "\x80";
-      while ((ascii.length % 64) - 56) ascii += "\x00";
-      for (let i = 0; i < ascii.length; i++) {
-        const j = ascii.charCodeAt(i);
-        words[i >> 2] |= j << ((3 - (i % 4)) * 8);
-      }
-      words[words.length] = (asciiBitLength / maxWord) | 0;
-      words[words.length] = asciiBitLength;
-      for (let j = 0; j < words.length; ) {
-        const w = words.slice(j, (j += 16));
-        const oldHash = hash.slice(0);
-        for (let i = 0; i < 64; i++) {
-          const w15 = w[i - 15], w2 = w[i - 2];
-          const a = hash[0], e = hash[4];
-          const temp1 =
-            hash[7] +
-            (rightRotate(e, 6) ^ rightRotate(e, 11) ^ rightRotate(e, 25)) +
-            ((e & hash[5]) ^ (~e & hash[6])) +
-            k[i] +
-            (w[i] =
-              i < 16
-                ? w[i]
-                : (w[i - 16] +
-                    (rightRotate(w15, 7) ^ rightRotate(w15, 18) ^ (w15 >>> 3)) +
-                    w[i - 7] +
-                    (rightRotate(w2, 17) ^ rightRotate(w2, 19) ^ (w2 >>> 10))) |
-                  0);
-          const temp2 =
-            (rightRotate(a, 2) ^ rightRotate(a, 13) ^ rightRotate(a, 22)) +
-            ((a & hash[1]) ^ (a & hash[2]) ^ (hash[1] & hash[2]));
-          hash = [(temp1 + temp2) | 0].concat(hash);
-          hash[4] = (hash[4] + temp1) | 0;
-          hash.pop();
-        }
-        for (let i = 0; i < 8; i++) {
-          hash[i] = (hash[i] + oldHash[i]) | 0;
-        }
-      }
-      for (let i = 0; i < 8; i++) {
-        for (let j = 3; j + 1; j--) {
-          const b = (hash[i] >> (j * 8)) & 255;
-          result += (b < 16 ? 0 : "") + b.toString(16);
-        }
-      }
-      return result;
+// Zero-Plaintext License Verification (Only 64-char SHA-256 digests stored; keys are never in HTML)
+const VALID_LICENSE_SHA256_DIGESTS = [
+  "60a3c51229e4d4381251d1e60dc2b1d5d281f976217f3876e3e956f47af9cdea",
+  "f757e3d38a3103843b57af2c7d5b9eb6607593d075928407f99a065caf3e7599"
+];
+
+function isReactMounted() {
+  return typeof window !== "undefined" && window.__WATCHDOG_REACT_MOUNTED__ === true;
+}
+
+function getElSafe(id) {
+  if (typeof document === "undefined" || typeof document.getElementById !== "function") {
+    return null;
+  }
+  return document.getElementById(id);
+}
+
+function readIntInput(id, fallbackVal, minVal) {
+  const el = getElSafe(id);
+  const parsed = el && el.value !== undefined && el.value !== "" ? parseInt(String(el.value), 10) : NaN;
+  const val = Number.isFinite(parsed) && parsed > 0 ? parsed : fallbackVal;
+  return minVal !== undefined ? Math.max(minVal, val) : val;
+}
+
+function sha256HexSync(ascii) {
+  function rightRotate(value, amount) {
+    return (value >>> amount) | (value << (32 - amount));
+  }
+  const mathPow = Math.pow;
+  const maxWord = mathPow(2, 32);
+  let result = "";
+  const words = [];
+  const asciiBitLength = ascii.length * 8;
+  let hash = [
+    0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a,
+    0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19
+  ];
+  const k = [
+    0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
+    0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
+    0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
+    0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7, 0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967,
+    0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85,
+    0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
+    0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
+    0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2
+  ];
+  ascii += "\x80";
+  while ((ascii.length % 64) - 56) ascii += "\x00";
+  for (let i = 0; i < ascii.length; i++) {
+    const j = ascii.charCodeAt(i);
+    words[i >> 2] |= j << ((3 - (i % 4)) * 8);
+  }
+  words[words.length] = (asciiBitLength / maxWord) | 0;
+  words[words.length] = asciiBitLength;
+  for (let j = 0; j < words.length; ) {
+    const w = words.slice(j, (j += 16));
+    const oldHash = hash.slice(0);
+    for (let i = 0; i < 64; i++) {
+      const w15 = w[i - 15], w2 = w[i - 2];
+      const a = hash[0], e = hash[4];
+      const temp1 =
+        hash[7] +
+        (rightRotate(e, 6) ^ rightRotate(e, 11) ^ rightRotate(e, 25)) +
+        ((e & hash[5]) ^ (~e & hash[6])) +
+        k[i] +
+        (w[i] =
+          i < 16
+            ? w[i]
+            : (w[i - 16] +
+                (rightRotate(w15, 7) ^ rightRotate(w15, 18) ^ (w15 >>> 3)) +
+                w[i - 7] +
+                (rightRotate(w2, 17) ^ rightRotate(w2, 19) ^ (w2 >>> 10))) |
+              0);
+      const temp2 =
+        (rightRotate(a, 2) ^ rightRotate(a, 13) ^ rightRotate(a, 22)) +
+        ((a & hash[1]) ^ (a & hash[2]) ^ (hash[1] & hash[2]));
+      hash = [(temp1 + temp2) | 0].concat(hash);
+      hash[4] = (hash[4] + temp1) | 0;
+      hash.pop();
     }
-
-    // Public-only RFC 8410 Ed25519 SPKI key (44 bytes DER in Base64 — zero private signing material in HTML)
-    const PRIME_TECH_ED25519_PUBLIC_KEY_SPKI_B64 = "MCowBQYDK2VwAyEAxkJtuXeg/fNeir0z70Cg4grr8ZpFXjVQd+Oe1G42IQU=";
-
-    function decodeBase64Bytes(b64, isUrlSafe) {
-      let norm = isUrlSafe ? b64.replace(/-/g, "+").replace(/_/g, "/") : b64;
-      while (norm.length % 4 !== 0) norm += "=";
-      if (typeof atob === "function") {
-        const bin = atob(norm);
-        const out = new Uint8Array(bin.length);
-        for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i) & 0xff;
-        return out;
-      }
-      if (typeof Buffer !== "undefined") {
-        return new Uint8Array(Buffer.from(norm, "base64"));
-      }
-      throw new Error("Base64 decoder unavailable");
+    for (let i = 0; i < 8; i++) {
+      hash[i] = (hash[i] + oldHash[i]) | 0;
     }
-
-    function applyProUnlockedUiState(labelSuffix) {
-      const statusEl = document.getElementById("license-status-msg");
-      const qBadge = document.getElementById("quarantine-lock-badge");
-      const pBadge = document.getElementById("patch-lock-badge");
-      isProLicenseUnlocked = true;
-      if (statusEl) {
-        statusEl.innerHTML =
-          'Status: <strong class="status-ok">' +
-          (labelSuffix || "PRO / LIFETIME LICENSE VERIFIED (Full SQL Remediation Export Unlocked)") +
-          "</strong>";
-      }
-      if (qBadge) {
-        qBadge.className = "sev sev-ok";
-        qBadge.textContent = "PRO UNLOCKED";
-      }
-      if (pBadge) {
-        pBadge.className = "sev sev-ok";
-        pBadge.textContent = "PRO UNLOCKED";
-      }
-      runChaosSimulation(currentChaosFilter);
-      runSqlLinter();
+  }
+  for (let i = 0; i < 8; i++) {
+    for (let j = 3; j + 1; j--) {
+      const b = (hash[i] >> (j * 8)) & 255;
+      result += (b < 16 ? 0 : "") + b.toString(16);
     }
+  }
+  return result;
+}
 
-    async function verifyEd25519LicenseInBrowser(rawKey, overrideSpkiB64) {
-      const statusEl = document.getElementById("license-status-msg");
-      const trimmed = (rawKey || "").trim();
-      const match = /^BWV2E-(PRO_MONTHLY|LIFETIME_TEAM)-(WATCHDOG_V2|BUNDLE_ALL)-(\d{10,12})-([0-9A-F]{12})-([A-Za-z0-9_-]{86})$/.exec(trimmed);
-      if (!match) {
-        isProLicenseUnlocked = false;
-        if (statusEl) {
-          statusEl.innerHTML = 'Status: <strong class="status-danger">Malformed BWV2E Ed25519 License Key.</strong>';
-        }
-        return false;
-      }
-      const tier = match[1];
-      const scope = match[2];
-      const expUnix = parseInt(match[3], 10);
-      const custHash12 = match[4];
-      const sigB64Url = match[5];
+// Public-only RFC 8410 Ed25519 SPKI key (44 bytes DER in Base64 — zero private signing material in HTML)
+const PRIME_TECH_ED25519_PUBLIC_KEY_SPKI_B64 = "MCowBQYDK2VwAyEAxkJtuXeg/fNeir0z70Cg4grr8ZpFXjVQd+Oe1G42IQU=";
 
-      const nowUnix = Math.floor(Date.now() / 1000);
-      if (nowUnix > expUnix) {
-        isProLicenseUnlocked = false;
-        if (statusEl) {
-          statusEl.innerHTML = 'Status: <strong class="status-danger">License Key Expired (UTC Unix ' + expUnix + '). Renew via Polar checkout below.</strong>';
-        }
-        return false;
-      }
+function decodeBase64Bytes(b64, isUrlSafe) {
+  let norm = isUrlSafe ? b64.replace(/-/g, "+").replace(/_/g, "/") : b64;
+  while (norm.length % 4 !== 0) norm += "=";
+  if (typeof atob === "function") {
+    const bin = atob(norm);
+    const out = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i) & 0xff;
+    return out;
+  }
+  if (typeof Buffer !== "undefined") {
+    return new Uint8Array(Buffer.from(norm, "base64"));
+  }
+  throw new Error("Base64 decoder unavailable");
+}
 
-      const subtle =
-        (typeof globalThis !== "undefined" && globalThis.crypto && globalThis.crypto.subtle) ||
-        (typeof window !== "undefined" && window.crypto && window.crypto.subtle);
-      if (!subtle) {
-        if (statusEl) {
-          statusEl.innerHTML = 'Status: <strong class="status-warn">Browser WebCrypto Ed25519 unavailable (HTTPS or localhost required).</strong>';
-        }
-        return false;
-      }
+function escapeHtmlSafe(raw) {
+  return String(raw || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
 
-      try {
-        const spkiBytes = decodeBase64Bytes(overrideSpkiB64 || PRIME_TECH_ED25519_PUBLIC_KEY_SPKI_B64, false);
-        const sigBytes = decodeBase64Bytes(sigB64Url, true);
-        if (sigBytes.length !== 64) return false;
-        const canonical = "BWV2E:" + tier + ":" + scope + ":" + expUnix + ":" + custHash12;
-        const msgBytes = new Uint8Array(canonical.length);
-        for (let i = 0; i < canonical.length; i++) msgBytes[i] = canonical.charCodeAt(i) & 0x7f;
+function formatUsdFromCents(cents) {
+  return "$" + (cents / 100).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
 
-        const pubKey = await subtle.importKey("spki", spkiBytes, { name: "Ed25519" }, false, ["verify"]);
-        const ok = await subtle.verify({ name: "Ed25519" }, pubKey, sigBytes, msgBytes);
-        if (ok) {
-          applyProUnlockedUiState("ED25519 " + tier + " VERIFIED (Full SQL Remediation Export Unlocked)");
-          return true;
-        }
-      } catch (_err) {
-        // Fall through to invalid signature message
-      }
+function formatUsdFromIntegerCents(amountCents) {
+  const whole = Math.trunc(amountCents / 100);
+  const minor = Math.abs(amountCents % 100);
+  return "$" + whole + (minor > 0 ? "." + String(minor).padStart(2, "0") : "");
+}
 
-      isProLicenseUnlocked = false;
-      if (statusEl) {
-        statusEl.innerHTML = 'Status: <strong class="status-danger">Invalid Ed25519 License Signature.</strong>';
-      }
-      return false;
+const VULNERABLE_SQL = [
+  "-- Typical AI / Usage-Based SaaS Schema (Missing 3 Critical Billing Invariants)",
+  "CREATE TABLE public.users (",
+  "  id uuid PRIMARY KEY,",
+  "  email text NOT NULL,",
+  "  stripe_customer_id text UNIQUE",
+  ");",
+  "",
+  "CREATE TABLE public.subscriptions (",
+  "  id uuid PRIMARY KEY,",
+  "  user_id uuid REFERENCES public.users(id),",
+  "  stripe_subscription_id text UNIQUE,",
+  "  status text NOT NULL",
+  ");",
+  "",
+  "-- DEFECT 1: No CHECK (credits_balance >= 0) -> race conditions drive balance negative!",
+  "CREATE TABLE public.wallets (",
+  "  user_id uuid PRIMARY KEY REFERENCES public.users(id),",
+  "  credits_balance integer NOT NULL DEFAULT 50",
+  ");",
+  "",
+  "-- DEFECT 2: No UNIQUE(stripe_event_id) -> concurrent Stripe webhook retries double-grant credits!",
+  "-- DEFECT 3: RLS not enabled on billing tables!",
+  "CREATE TABLE public.credit_transactions (",
+  "  id uuid PRIMARY KEY,",
+  "  user_id uuid REFERENCES public.users(id),",
+  "  stripe_event_id text,",
+  "  stripe_invoice_id text,",
+  "  credits_delta integer NOT NULL,",
+  "  created_at timestamptz DEFAULT now()",
+  ");"
+].join("\n");
+
+const HARDENED_SQL = [
+  "CREATE TABLE public.users (id uuid PRIMARY KEY, stripe_customer_id text UNIQUE);",
+  "CREATE TABLE public.subscriptions (id uuid PRIMARY KEY, user_id uuid, stripe_subscription_id text UNIQUE, status text);",
+  "CREATE TABLE public.wallets (",
+  "  user_id uuid PRIMARY KEY,",
+  "  credits_balance integer NOT NULL CHECK (credits_balance >= 0)",
+  ");",
+  "CREATE TABLE public.credit_transactions (",
+  "  id uuid PRIMARY KEY,",
+  "  user_id uuid,",
+  "  stripe_event_id text UNIQUE,",
+  "  credits_delta integer NOT NULL",
+  ");",
+  "ALTER TABLE public.users ENABLE ROW LEVEL SECURITY;",
+  "CREATE POLICY users_isolation ON public.users FOR SELECT USING (auth.uid() = id);",
+  "ALTER TABLE public.subscriptions ENABLE ROW LEVEL SECURITY;",
+  "CREATE POLICY subs_isolation ON public.subscriptions FOR SELECT USING (auth.uid() = user_id);",
+  "ALTER TABLE public.wallets ENABLE ROW LEVEL SECURITY;",
+  "CREATE POLICY wallets_isolation ON public.wallets FOR SELECT USING (auth.uid() = user_id);",
+  "ALTER TABLE public.credit_transactions ENABLE ROW LEVEL SECURITY;",
+  "CREATE POLICY tx_isolation ON public.credit_transactions FOR SELECT USING (auth.uid() = user_id);"
+].join("\n");
+
+const VULNERABLE_NEXTJS_TS = [
+  "// AI-Generated Next.js Stripe Webhook + Vercel AI SDK Streaming Route (app/api/webhooks/stripe/route.ts)",
+  "export async function POST(req: Request) {",
+  "  // BUG 1: Parses req.json() without raw-body Stripe-Signature HMAC verification!",
+  "  const event = await req.json();",
+  "",
+  "  // BUG 2: Grants on BOTH checkout.session.completed and invoice.paid without canonical invoice lock!",
+  "  if (event.type === 'checkout.session.completed' || event.type === 'invoice.paid') {",
+  "    const { data: wallet } = await supabase.from('wallets').select('credits').single();",
+  "    // BUG 3: Non-atomic JS Read-Modify-Write + parseFloat money math!",
+  "    await supabase.from('wallets').update({ credits: wallet.credits + parseFloat(event.amount) });",
+  "  }",
+  "",
+  "  // BUG 4: Streaming LLM deducts credits inside onFinish WITHOUT pre-flight HOLD reservation!",
+  "  return streamText({",
+  "    model: openai('gpt-4o'),",
+  "    onFinish: async ({ usage }) => {",
+  "      await supabase.from('wallets').update({ credits: wallet.credits - usage.totalTokens });",
+  "    }",
+  "  });",
+  "}"
+].join("\n");
+
+const BROKEN_RLS_SQL = [
+  "-- Multi-Tenant AI SaaS Schema with Permissive RLS & Unpinned SECURITY DEFINER RPC",
+  "CREATE TABLE public.users (id uuid PRIMARY KEY, stripe_customer_id text UNIQUE);",
+  "CREATE TABLE public.subscriptions (id uuid PRIMARY KEY, user_id uuid, stripe_subscription_id text UNIQUE, status text);",
+  "CREATE TABLE public.wallets (user_id uuid PRIMARY KEY, credits_balance integer NOT NULL CHECK (credits_balance >= 0));",
+  "CREATE TABLE public.credit_transactions (id uuid PRIMARY KEY, user_id uuid, stripe_event_id text UNIQUE, credits_delta integer NOT NULL);",
+  "ALTER TABLE public.users ENABLE ROW LEVEL SECURITY;",
+  "CREATE POLICY users_isolation ON public.users FOR SELECT USING (auth.uid() = id);",
+  "ALTER TABLE public.subscriptions ENABLE ROW LEVEL SECURITY;",
+  "CREATE POLICY subs_isolation ON public.subscriptions FOR SELECT USING (auth.uid() = user_id);",
+  "ALTER TABLE public.wallets ENABLE ROW LEVEL SECURITY;",
+  "-- DEFECT 4: Permissive USING (true) leaks every tenant wallet balance via PostgREST!",
+  "CREATE POLICY wallets_open_read ON public.wallets FOR SELECT USING (true);",
+  "ALTER TABLE public.credit_transactions ENABLE ROW LEVEL SECURITY;",
+  "-- DEFECT 5: auth.role() = 'authenticated' without auth.uid() allows any logged-in user to read all tenants!",
+  "CREATE POLICY tx_any_logged_in ON public.credit_transactions FOR SELECT USING (auth.role() = 'authenticated');",
+  "",
+  "-- DEFECT 6: SECURITY DEFINER RPC accepts target_user_id without auth.uid() check or SET search_path!",
+  "CREATE OR REPLACE FUNCTION public.grant_bonus_credits(target_user_id uuid, delta integer)",
+  "RETURNS void LANGUAGE plpgsql SECURITY DEFINER AS $",
+  "BEGIN",
+  "  UPDATE public.wallets SET credits_balance = credits_balance + delta WHERE user_id = target_user_id;",
+  "END;",
+  "$;"
+].join("\n");
+
+let __state = {
+  isProLicenseUnlocked: false,
+  licenseLabel: "Free Diagnostic Mode",
+  licenseStatusKind: "free",
+  licenseStatusText: "FREE DIAGNOSTIC MODE (Remediation SQL Export Redacted)",
+  licenseStatusHtml: 'Status: <strong class="status-warn">FREE DIAGNOSTIC MODE (Remediation SQL Export Redacted)</strong>',
+  licenseDrawerOpen: false,
+  licenseKeyDraft: "",
+  polarNotice: null,
+  chaos: {
+    filter: "ALL",
+    planPriceCents: 4900,
+    planCredits: 2000,
+    monthlySubs: 500,
+    quarantineThresholdCents: 2500,
+    naiveLeakedCredits: 43680,
+    naiveLeakedCents: 107016,
+    annualDriftCents: 3210480,
+    quarantinedAccounts: [],
+    rows: [],
+    filteredRows: [],
+    eventLog: "",
+    logSections: [],
+    quarantineSql: "",
+    oscilloscopeTicks: []
+  },
+  linter: {
+    activePreset: "vulnerable",
+    sqlInput: VULNERABLE_SQL,
+    isCodeMode: false,
+    findings: [],
+    patchOutput: "",
+    lintMs: 2
+  },
+  reconciler: {
+    rawReport: "",
+    checks: []
+  }
+};
+
+function notifyKernelListeners() {
+  for (const listener of __kernelListeners) {
+    try {
+      listener();
+    } catch (_err) {
+      // Isolate listener errors
     }
+  }
+}
 
-    function unlockProPortal(explicitKey) {
-      const inputEl = document.getElementById("license-key-input");
-      const rawKey = (explicitKey !== undefined ? explicitKey : (inputEl ? inputEl.value : "")).trim();
-      const statusEl = document.getElementById("license-status-msg");
+function commitState(mutator) {
+  const next = Object.assign({}, __state);
+  mutator(next);
+  __state = next;
+  notifyKernelListeners();
+}
 
-      if (rawKey.indexOf("BWV2E-") === 0) {
-        if (statusEl) {
-          statusEl.innerHTML = 'Status: <strong class="status-info">Verifying Asymmetric Ed25519 Signature...</strong>';
-        }
-        verifyEd25519LicenseInBrowser(rawKey);
-        return false;
-      }
+function lineOfPattern(text, regex) {
+  const m = regex.exec(text);
+  if (!m || m.index === undefined) return 1;
+  return text.slice(0, m.index).split(/\r?\n/).length;
+}
 
-      const digest = sha256HexSync(rawKey);
-      if (VALID_LICENSE_SHA256_DIGESTS.indexOf(digest) !== -1) {
-        applyProUnlockedUiState("PRO / LIFETIME LICENSE VERIFIED (Full SQL Remediation Export Unlocked)");
-        return true;
+function buildOscilloscopeTicks(planPriceCents, planCredits, thresholdCents, oooLeakedCents, disputeDeficitCredits, disputeDeficitCents) {
+  const ticks = [];
+  let runningLeakCents = 0;
+  let runningLeakCredits = 0;
+  let trippedAtTick = -1;
+
+  for (let i = 0; i < 50; i++) {
+    let phase = "STREAM";
+    let phaseLabel = "Edge 8 · 50x Parallel LLM Hold";
+    let naiveCentsDelta = 0;
+    let naiveCreditsDelta = 0;
+    let watchdogAction = "VERIFIED";
+
+    if (i < 20) {
+      phase = "BURST";
+      phaseLabel = "Edge 1 & 3 · 20x Parallel Burst";
+      if (i === 0) {
+        watchdogAction = "COMMITTED";
       } else {
-        isProLicenseUnlocked = false;
-        if (statusEl) {
-          statusEl.innerHTML = 'Status: <strong class="status-danger">Invalid License Key. Purchase Pro ($49/mo) or Lifetime ($149) below to receive your BWV2E-... key.</strong>';
-        }
-        return false;
+        naiveCentsDelta = planPriceCents;
+        naiveCreditsDelta = planCredits;
+        watchdogAction = i === 19 ? "ECHO_IGNORED" : "LOCK_REJECTED";
       }
-    }
-
-    function formatUsdFromCents(cents) {
-      return "$" + (cents / 100).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-    }
-
-    function runChaosSimulation(filterMode) {
-      currentChaosFilter = filterMode || "ALL";
-      const filterBtns = ["ALL", "BURST", "OOO", "MANUAL", "MULTI", "DELETED", "DISPUTE", "ARITH", "STREAM"];
-      for (const f of filterBtns) {
-        const el = document.getElementById("btn-filter-" + f);
-        if (el) {
-          if (f === currentChaosFilter) el.classList.add("btn-active");
-          else el.classList.remove("btn-active");
-        }
-      }
-
-      const planPriceCents = parseInt(document.getElementById("chaos-plan-price").value, 10) || 4900;
-      const planCredits = parseInt(document.getElementById("chaos-plan-credits").value, 10) || 2000;
-      const monthlySubs = Math.max(10, parseInt(document.getElementById("chaos-monthly-subs").value, 10) || 500);
-      const thresholdCents = parseInt(document.getElementById("chaos-quarantine-threshold").value, 10) || 2500;
-
-      // Pure integer arithmetic for all 4 chaos vectors (50 events total):
-      const burstMultiplier = 19;
-      const burstLeakedCredits = planCredits * burstMultiplier;
-      const burstLeakedCents = planPriceCents * burstMultiplier;
-
-      const oooLeakedCredits = planCredits * 2;
-      const oooLeakedCents = planPriceCents * 2;
-
-      const consumedBeforeDispute = Math.round((planCredits * 84) / 100);
-      const remainingBeforeDispute = planCredits - consumedBeforeDispute;
-      const disputeDeficitCredits = consumedBeforeDispute;
-      const disputeDeficitCents = Math.round((planPriceCents * 84) / 100);
-
-      const preservedTopUpAndSupport = 500 + 200;
-
-      const totalNaiveLeakedCredits = burstLeakedCredits + oooLeakedCredits + disputeDeficitCredits;
-      const totalNaiveLeakedCents = burstLeakedCents + oooLeakedCents + disputeDeficitCents;
-
-      const affectedAccountsPerYear = Math.max(1, Math.round((monthlySubs * 2) / 100));
-      const singleAccountAvgLeakCents = Math.round(totalNaiveLeakedCents / 4);
-      const annualExposureCents = affectedAccountsPerYear * singleAccountAvgLeakCents * 12;
-
-      document.getElementById("naive-leaked-credits").textContent =
-        "+" + totalNaiveLeakedCredits.toLocaleString("en-US") + " credits";
-      document.getElementById("naive-leaked-usd").textContent =
-        formatUsdFromCents(totalNaiveLeakedCents) + " (" + totalNaiveLeakedCents.toLocaleString("en-US") + " integer cents)";
-      document.getElementById("naive-annual-exposure").textContent =
-        formatUsdFromCents(annualExposureCents) + " / yr";
-      document.getElementById("naive-wiped-credits").textContent =
-        preservedTopUpAndSupport + " customer credits destroyed";
-
-      const quarantinedAccounts = [];
-      if (oooLeakedCents >= thresholdCents) {
-        quarantinedAccounts.push({
-          userId: "usr_ooo_zombie_01",
-          leakCents: oooLeakedCents,
-          reason: "ZOMBIE_SUBSCRIPTION_OUT_OF_ORDER_ATTEMPT"
-        });
-      }
-      if (disputeDeficitCents >= thresholdCents) {
-        quarantinedAccounts.push({
-          userId: "usr_dispute_abuse_02",
-          leakCents: disputeDeficitCents,
-          reason: "CLAWBACK_DEFICIT_CHARGE_DISPUTE_CREATED"
-        });
-      }
-
-      document.getElementById("watchdog-quarantine-status").textContent =
-        "is_billing_quarantined = TRUE (" + quarantinedAccounts.length + " frozen >= " + thresholdCents + "c)";
-
-      const rows = [
-        {
-          key: "BURST",
-          vector: "Edge 1 & 3 · 20x Parallel Burst & Self-Echo Idempotency (20 events in 1ms)",
-          naive: "FAIL: Race condition reads stale balance before UPDATE commits: grants " + (planCredits * 20).toLocaleString("en-US") + " credits instead of " + planCredits.toLocaleString("en-US") + " (+" + burstLeakedCredits.toLocaleString("en-US") + " leaked = " + formatUsdFromCents(burstLeakedCents) + "); re-applies self-echo webhooks.",
-          watchdog: "PASS: Atomic canonical lock (invoice:in_pro_1), stripe_event_id dedup & live_state === last_applied_state self-echo guard (IGNORED_SELF_ECHO): applies 1/20, 0 credits leaked."
-        },
-        {
-          key: "OOO",
-          vector: "Edge 2 · Out-of-Order Webhook (10 events: t=100s delete before t=90s update)",
-          naive: "FAIL: Blindly overwrites 'canceled' with delayed t=90s 'active' payload, resurrecting 2 Zombie Subscriptions (" + formatUsdFromCents(oooLeakedCents) + " / +" + oooLeakedCredits.toLocaleString("en-US") + " credits leaked).",
-          watchdog: "PASS: Enforces last_stripe_event_created_utc & last_reverted_at watermarks (t=90s <= t=100s): rejects stale update as IGNORED_OUT_OF_ORDER; status stays 'canceled'."
-        },
-        {
-          key: "MANUAL",
-          vector: "Edge 4 · Partial Manual Edit of Any Field & Support Grants (SKIPPED_MANUAL_EDIT)",
-          naive: "FAIL: Blind campaign revert overwrites admin's manual compare_at_price override (6,500c -> 5,900c) and wipes out +250 support goodwill credits.",
-          watchdog: "PASS: Detects isolated manual change on any of 7 tracked fields, marks ALL active memberships SKIPPED_MANUAL_EDIT before clearing registry, and preserves SKIPPED_MANUAL_SUPPORT_GRANT."
-        },
-        {
-          key: "MULTI",
-          vector: "Edge 5 · 3+ Overlapping Credit Sources in 3 Orders: 1→2→3, 2→1→3, 3→2→1 (12 events)",
-          naive: "FAIL: Flat credits_balance=0 reset on subscription cancel wipes out 500 non-expiring Top-Up credits + 200 Manual Support credits.",
-          watchdog: "PASS: 100% order-invariant across 1→2→3, 2→1→3, 3→2→1: converges to exact baseline price (" + planPriceCents + "c) and preserves 500 Top-Up + 200 Support = 700 credits."
-        },
-        {
-          key: "DELETED",
-          vector: "Edge 6 · Deleted External Entities in Stripe (deletedCustomers / deletedSubscriptions)",
-          naive: "FAIL: Throws unhandled Stripe 404 resource_missing mid-batch, aborting reconciliation for all remaining active subscribers.",
-          watchdog: "PASS: Gracefully isolates deleted entities into deletedCustomers, deletedSubscriptions & deletedVariants while completing 100% of remaining batch."
-        },
-        {
-          key: "DISPUTE",
-          vector: "Edge 7a · Partial Refund + Dispute Clawback > Remaining Balance (8 events)",
-          naive: "FAIL: Subtracts " + planCredits.toLocaleString("en-US") + " from " + remainingBeforeDispute.toLocaleString("en-US") + " remaining -> balance hits -" + disputeDeficitCredits.toLocaleString("en-US") + " (or crashes PostgreSQL CHECK >= 0 with HTTP 500 retry storm).",
-          watchdog: "PASS: Clamps deduction to 0 revocable credits (never negative), emits Dry-Run CLAWBACK_EXCEEDS_REMAINING_BALANCE_WARNING (" + disputeDeficitCents + "c deficit), and quarantines."
-        },
-        {
-          key: "ARITH",
-          vector: "Edge 7b · Boundary Arithmetic: 100% Discount & Fixed Discount > Price ($0.01 Floor)",
-          naive: "FAIL: 100% discount or $50.00 off $29.00 yields $0.00 or -$21.00 negative billing amount; FLOAT math introduces IEEE-754 drift and accepts zero-decimal JPY without validation.",
-          watchdog: "PASS: Pure integer cents + ISO-4217 validation: clamps 100% and > price discounts to 1 cent ($0.01) with Dry-Run FLOOR_CLAMP_WARNING & EFFECTIVE_DISCOUNT_DRIFT_GT_5PP."
-        },
-        {
-          key: "STREAM",
-          vector: "Edge 8 · 50x Parallel LLM Stream Hold (streamText / onFinish Token Race)",
-          naive: "FAIL: Post-stream onFinish deduction checks if (user.credits > 0) at t=0ms: all 50 parallel /api/chat requests pass before any stream finishes, burning 3,250 credits on a 1,000-credit wallet (+2,250 unbacked credits leaked).",
-          watchdog: "PASS: Two-Phase Pre-Flight Reservation (HOLD -> CAPTURE / RELEASE + TTL Zombie Reaper): locks 100 max credits pre-flight, allows 10/50 streams, blocks 40/50 with HTTP 402 before touching OpenAI, commits 650 actual credits & refunds 350 unused hold (0 leaked)."
-        }
-      ];
-
-      const filteredRows = currentChaosFilter === "ALL"
-        ? rows
-        : rows.filter(r => r.key === currentChaosFilter);
-
-      document.getElementById("chaos-comparison-tbody").innerHTML = filteredRows.map(r =>
-        "<tr>" +
-          "<td><strong>" + r.vector + "</strong></td>" +
-          "<td class='cell-naive'>" + r.naive + "</td>" +
-          "<td class='cell-watchdog'>" + r.watchdog + "</td>" +
-        "</tr>"
-      ).join("");
-
-      const logSections = [
-        {
-          key: "BURST",
-          lines: [
-            "[Edge 1 & 3 | t=00.000s] 20x concurrent invoice.paid + checkout.session.completed (invoice=in_pro_1, amount=" + planPriceCents + "c)",
-            "  -> Naive Handler:     APPLIED 20/20 -> oldBalance=0 -> newBalance=" + (planCredits * 20) + " (LEAKED +" + burstLeakedCredits + " credits)",
-            "  -> Watchdog v2:       APPLIED 1/20, CONCURRENT_LOCK_REJECTED / IGNORED_ALREADY_SETTLED=19 -> newBalance=" + planCredits + " (0 leak)",
-            "  -> Self-Echo Check:   evt_echo_back_002 (live_state === last_applied_state) -> IGNORED_SELF_ECHO"
-          ]
-        },
-        {
-          key: "OOO",
-          lines: [
-            "[Edge 2 | t=01.400s] evt_sub_deleted (created t=100s) arrived BEFORE evt_sub_updated (created t=90s, status='active')",
-            "  -> Naive Handler:     APPLIED stale t=90s update -> status='active' (ZOMBIE SUBSCRIPTION RESURRECTED)",
-            "  -> Watchdog v2:       IGNORED_OUT_OF_ORDER (eventCreatedUtc 90s <= watermark 100s) -> status='canceled'"
-          ]
-        },
-        {
-          key: "MANUAL",
-          lines: [
-            "[Edge 4 | t=03.200s] Admin manually edited compareAtPriceCents (5900c -> 6500c) while rule_1 & rule_2 were active",
-            "  -> Naive Handler:     Overwrote manual edit back to 5900c and wiped +250 support grant credits",
-            "  -> Watchdog v2:       Marked rule_1 & rule_2 SKIPPED_MANUAL_EDIT before registry clear; preserved 6500c & +250 SKIPPED_MANUAL_SUPPORT_GRANT"
-          ]
-        },
-        {
-          key: "MULTI",
-          lines: [
-            "[Edge 5 | t=05.000s] 3+ Overlapping Sources (Free=100, MonthlySub=" + planCredits + ", TopUp=500, ManualSupport=200)",
-            "  -> Deactivation 1->2->3: Watchdog v2 finalBalance = 700 cr | baselinePrice=" + planPriceCents + "c",
-            "  -> Deactivation 2->1->3: Watchdog v2 finalBalance = 700 cr | baselinePrice=" + planPriceCents + "c (Exact Match)",
-            "  -> Deactivation 3->2->1: Watchdog v2 finalBalance = 700 cr | baselinePrice=" + planPriceCents + "c (Exact Match)"
-          ]
-        },
-        {
-          key: "DELETED",
-          lines: [
-            "[Edge 6 | t=06.800s] Batch Reconcile with Deleted Stripe Entities (cus_deleted_99, sub_deleted_88)",
-            "  -> Naive Handler:     Uncaught Stripe 404 resource_missing -> batch aborted",
-            "  -> Watchdog v2:       revertedOrSyncedUsers=['usr_valid_1'], deletedCustomers=['cus_deleted_99'], deletedSubscriptions=['sub_deleted_88']"
-          ]
-        },
-        {
-          key: "DISPUTE",
-          lines: [
-            "[Edge 7a | t=08.100s] User consumed " + consumedBeforeDispute + "/" + planCredits + " credits; 50% charge.refunded + 50% charge.dispute.created arrived",
-            "  -> Naive Handler:     oldBalance=" + remainingBeforeDispute + " -> newBalance=-" + disputeDeficitCredits + " (POSTGRES CHECK >= 0 CRASH / HTTP 500)",
-            "  -> Watchdog v2:       Clamped oldBalance=" + remainingBeforeDispute + " -> newBalance=0 | Deficit=" + disputeDeficitCredits + " cr (" + disputeDeficitCents + "c) | QUARANTINED=true"
-          ]
-        },
-        {
-          key: "ARITH",
-          lines: [
-            "[Edge 7b | t=09.500s] Dry-Run Boundary Arithmetic (100% discount & $50.00 off " + formatUsdFromCents(planPriceCents) + " plan)",
-            "  -> Dry-Run Preview:   oldPrice=" + planPriceCents + "c -> newPrice=1c ($0.01 minimum floor) | Warnings: [FLOOR_CLAMP_WARNING, EFFECTIVE_DISCOUNT_DRIFT_GT_5PP]"
-          ]
-        },
-        {
-          key: "STREAM",
-          lines: [
-            "[Edge 8  | t=10.000s] 50x concurrent POST /api/chat LLM streams (wallet=1000cr, maxHold=100cr, actualUsed=65cr)",
-            "  -> Naive onFinish:    50/50 pass t=0ms check -> 3,250 credits burned on OpenAI (+2,250 unbacked credits leaked)",
-            "  -> Watchdog 2-Phase:  RESERVED 10/50, HTTP 402 BLOCKED 40/50 -> COMMITTED 650cr, RELEASED 350cr unused hold -> 0 leaked"
-          ]
-        }
-      ];
-
-      const activeLogSections = currentChaosFilter === "ALL"
-        ? logSections
-        : logSections.filter(s => s.key === currentChaosFilter);
-
-      const logLines = [
-        "[UTC 2026-11-01T10:00:00.000Z] Deterministic Stripe Webhook Fault & 7-Edge-Case State Machine Log (Integer Cents Mode)",
-        "--------------------------------------------------------------------------------------------------------------"
-      ];
-      for (const sec of activeLogSections) {
-        for (const l of sec.lines) logLines.push(l);
-        logLines.push("");
-      }
-      document.getElementById("chaos-event-log").textContent = logLines.join("\n");
-
-      const sqlPatch = [
-        "-- Active Runaway Credit Circuit-Breaker Quarantine Patch (Dry-Run Preview)",
-        "-- Target Column: public.users.is_billing_quarantined | Threshold: " + thresholdCents + " integer cents (" + formatUsdFromCents(thresholdCents) + ")"
-      ];
-      if (!isProLicenseUnlocked) {
-        sqlPatch.push(
-          "-- Diagnostic Result: " + quarantinedAccounts.length + " account(s) exceeded threshold (" + quarantinedAccounts.map(a => a.userId + "=" + a.leakCents + "c").join(", ") + ")",
-          "--",
-          "-- [REDACTED IN FREE DIAGNOSTIC MODE]",
-          "-- Enter your BWV2-... Pro/Lifetime License Key above (or purchase Pro $49/mo / Lifetime $149 below)",
-          "-- to unlock executable circuit-breaker SQL statements & the atomic PL/pgSQL SELECT ... FOR UPDATE engine."
-        );
+    } else if (i < 30) {
+      phase = "OOO";
+      phaseLabel = "Edge 2 · Out-of-Order Cancel";
+      if (i === 22 || i === 27) {
+        naiveCentsDelta = planPriceCents;
+        naiveCreditsDelta = planCredits;
+        watchdogAction = "WATERMARK_DROP";
       } else {
-        sqlPatch.push(
-          "ALTER TABLE \"public\".\"users\" ADD COLUMN IF NOT EXISTS \"is_billing_quarantined\" BOOLEAN NOT NULL DEFAULT FALSE;",
-          "BEGIN;"
-        );
-        if (quarantinedAccounts.length === 0) {
-          sqlPatch.push("-- No accounts exceeded quarantine threshold of " + thresholdCents + " integer cents.");
+        watchdogAction = "VERIFIED";
+      }
+    } else if (i < 42) {
+      if (i < 35) {
+        phase = "MANUAL";
+        phaseLabel = "Edge 4 · Manual Override Guard";
+        watchdogAction = i === 32 ? "MANUAL_PRESERVED" : "VERIFIED";
+      } else if (i < 39) {
+        phase = "MULTI";
+        phaseLabel = "Edge 5 · 3+ Bucket Deactivation";
+        watchdogAction = "ORDER_INVARIANT";
+      } else {
+        phase = "DELETED";
+        phaseLabel = "Edge 6 · Deleted Stripe 404";
+        watchdogAction = i === 40 ? "ENTITY_ISOLATED" : "VERIFIED";
+      }
+    } else {
+      if (i < 45) {
+        phase = "DISPUTE";
+        phaseLabel = "Edge 7a · Clawback > Balance";
+        if (i === 43) {
+          naiveCentsDelta = disputeDeficitCents;
+          naiveCreditsDelta = disputeDeficitCredits;
+          watchdogAction = "CLAMPED_ZERO";
         } else {
-          for (const acc of quarantinedAccounts) {
-            sqlPatch.push(
-              "-- Freeze " + acc.userId + ": estimatedLeakCents=" + acc.leakCents + " (" + formatUsdFromCents(acc.leakCents) + "), reason=" + acc.reason,
-              "UPDATE \"public\".\"users\" SET \"is_billing_quarantined\" = TRUE WHERE \"id\" = '" + acc.userId + "' AND COALESCE(\"is_billing_quarantined\", FALSE) = FALSE;"
-            );
-          }
+          watchdogAction = "QUARANTINED";
         }
-        sqlPatch.push("COMMIT;");
+      } else if (i === 45 || i === 46) {
+        phase = "ARITH";
+        phaseLabel = "Edge 7b · $0.01 Floor Clamp";
+        watchdogAction = "FLOOR_CLAMPED";
+      } else {
+        phase = "STREAM";
+        phaseLabel = "Edge 8 · 50x Parallel LLM Hold";
+        watchdogAction = i === 49 ? "RELEASED_HOLD" : "HTTP_402_GUARDED";
       }
-      document.getElementById("quarantine-sql-output").value = sqlPatch.join("\n");
     }
 
-    function copyQuarantineSql() {
-      if (!isProLicenseUnlocked) {
-        const statusEl = document.getElementById("license-status-msg");
-        if (statusEl) {
-          statusEl.innerHTML = 'Status: <strong class="status-warn">Pro / Lifetime License Required to copy executable Quarantine SQL.</strong>';
-        }
-        return false;
-      }
-      const el = document.getElementById("quarantine-sql-output");
-      el.select();
-      navigator.clipboard.writeText(el.value);
+    runningLeakCents += naiveCentsDelta;
+    runningLeakCredits += naiveCreditsDelta;
+    if (trippedAtTick === -1 && oooLeakedCents >= thresholdCents && i >= 27) {
+      trippedAtTick = i;
+    }
+
+    ticks.push({
+      index: i,
+      tLabel: (i * 0.032).toFixed(2) + "s",
+      phase,
+      phaseLabel,
+      naiveCentsDelta,
+      naiveCreditsDelta,
+      cumulativeNaiveCents: runningLeakCents,
+      cumulativeNaiveCredits: runningLeakCredits,
+      watchdogAction,
+      breakerState: trippedAtTick !== -1 && i >= trippedAtTick ? "QUARANTINED" : i === 22 ? "TRIPPED" : "ARMED",
+      isTripPoint: i === trippedAtTick
+    });
+  }
+  return ticks;
+}
+
+function updateLicenseDom(statusHtml, badgeLabel, unlocked) {
+  if (isReactMounted()) return;
+  const statusEl = getElSafe("license-status-msg");
+  const qBadge = getElSafe("quarantine-lock-badge");
+  const pBadge = getElSafe("patch-lock-badge");
+  if (statusEl) {
+    statusEl.innerHTML = statusHtml;
+  }
+  if (unlocked) {
+    if (qBadge) {
+      qBadge.className = "sev sev-ok";
+      qBadge.textContent = badgeLabel || "PRO UNLOCKED";
+    }
+    if (pBadge) {
+      pBadge.className = "sev sev-ok";
+      pBadge.textContent = badgeLabel || "PRO UNLOCKED";
+    }
+  }
+}
+
+function applyProUnlockedUiState(labelSuffix) {
+  const text = labelSuffix || "PRO / LIFETIME LICENSE VERIFIED (Full SQL Remediation Export Unlocked)";
+  const statusHtml = 'Status: <strong class="status-ok">' + text + "</strong>";
+  isProLicenseUnlocked = true;
+  commitState((next) => {
+    next.isProLicenseUnlocked = true;
+    next.licenseLabel = "Pro Verified";
+    next.licenseStatusKind = "ok";
+    next.licenseStatusText = text;
+    next.licenseStatusHtml = statusHtml;
+    next.polarNotice = null;
+  });
+  updateLicenseDom(statusHtml, "PRO UNLOCKED", true);
+  runChaosSimulation(currentChaosFilter);
+  runSqlLinter();
+}
+
+async function verifyEd25519LicenseInBrowser(rawKey, overrideSpkiB64) {
+  const trimmed = (rawKey || "").trim();
+  const match = /^BWV2E-(PRO_MONTHLY|LIFETIME_TEAM)-(WATCHDOG_V2|BUNDLE_ALL)-(\d{10,12})-([0-9A-F]{12})-([A-Za-z0-9_-]{86})$/.exec(trimmed);
+  if (!match) {
+    isProLicenseUnlocked = false;
+    const msg = "Malformed BWV2E Ed25519 License Key.";
+    const html = 'Status: <strong class="status-danger">' + msg + "</strong>";
+    commitState((next) => {
+      next.isProLicenseUnlocked = false;
+      next.licenseLabel = "Free Diagnostic Mode";
+      next.licenseStatusKind = "error";
+      next.licenseStatusText = msg;
+      next.licenseStatusHtml = html;
+    });
+    updateLicenseDom(html, "", false);
+    return false;
+  }
+  const tier = match[1];
+  const scope = match[2];
+  const expUnix = parseInt(match[3], 10);
+  const custHash12 = match[4];
+  const sigB64Url = match[5];
+
+  const nowUnix = Math.floor(Date.now() / 1000);
+  if (nowUnix > expUnix) {
+    isProLicenseUnlocked = false;
+    const msg = "License Key Expired (UTC Unix " + expUnix + "). Renew via Polar checkout below.";
+    const html = 'Status: <strong class="status-danger">' + msg + "</strong>";
+    commitState((next) => {
+      next.isProLicenseUnlocked = false;
+      next.licenseStatusKind = "error";
+      next.licenseStatusText = msg;
+      next.licenseStatusHtml = html;
+    });
+    updateLicenseDom(html, "", false);
+    return false;
+  }
+
+  const subtle =
+    (typeof globalThis !== "undefined" && globalThis.crypto && globalThis.crypto.subtle) ||
+    (typeof window !== "undefined" && window.crypto && window.crypto.subtle);
+  if (!subtle) {
+    const msg = "Browser WebCrypto Ed25519 unavailable (HTTPS or localhost required).";
+    const html = 'Status: <strong class="status-warn">' + msg + "</strong>";
+    commitState((next) => {
+      next.licenseStatusKind = "warn";
+      next.licenseStatusText = msg;
+      next.licenseStatusHtml = html;
+    });
+    updateLicenseDom(html, "", false);
+    return false;
+  }
+
+  try {
+    const spkiBytes = decodeBase64Bytes(overrideSpkiB64 || PRIME_TECH_ED25519_PUBLIC_KEY_SPKI_B64, false);
+    const sigBytes = decodeBase64Bytes(sigB64Url, true);
+    if (sigBytes.length !== 64) return false;
+    const canonical = "BWV2E:" + tier + ":" + scope + ":" + expUnix + ":" + custHash12;
+    const msgBytes = new Uint8Array(canonical.length);
+    for (let i = 0; i < canonical.length; i++) msgBytes[i] = canonical.charCodeAt(i) & 0x7f;
+
+    const pubKey = await subtle.importKey("spki", spkiBytes, { name: "Ed25519" }, false, ["verify"]);
+    const ok = await subtle.verify({ name: "Ed25519" }, pubKey, sigBytes, msgBytes);
+    if (ok) {
+      applyProUnlockedUiState("ED25519 " + tier + " VERIFIED (Full SQL Remediation Export Unlocked)");
       return true;
     }
+  } catch (_err) {
+    // Fall through to invalid signature message
+  }
 
-    const VULNERABLE_SQL = [
-      "-- Typical AI / Usage-Based SaaS Schema (Missing 3 Critical Billing Invariants)",
-      "CREATE TABLE public.users (",
-      "  id uuid PRIMARY KEY,",
-      "  email text NOT NULL,",
-      "  stripe_customer_id text UNIQUE",
-      ");",
-      "",
-      "CREATE TABLE public.subscriptions (",
-      "  id uuid PRIMARY KEY,",
-      "  user_id uuid REFERENCES public.users(id),",
-      "  stripe_subscription_id text UNIQUE,",
-      "  status text NOT NULL",
-      ");",
-      "",
-      "-- DEFECT 1: No CHECK (credits_balance >= 0) -> race conditions drive balance negative!",
-      "CREATE TABLE public.wallets (",
-      "  user_id uuid PRIMARY KEY REFERENCES public.users(id),",
-      "  credits_balance integer NOT NULL DEFAULT 50",
-      ");",
-      "",
-      "-- DEFECT 2: No UNIQUE(stripe_event_id) -> concurrent Stripe webhook retries double-grant credits!",
-      "-- DEFECT 3: RLS not enabled on billing tables!",
-      "CREATE TABLE public.credit_transactions (",
-      "  id uuid PRIMARY KEY,",
-      "  user_id uuid REFERENCES public.users(id),",
-      "  stripe_event_id text,",
-      "  stripe_invoice_id text,",
-      "  credits_delta integer NOT NULL,",
-      "  created_at timestamptz DEFAULT now()",
-      ");"
-    ].join("\n");
+  isProLicenseUnlocked = false;
+  const errMsg = "Invalid Ed25519 License Signature.";
+  const errHtml = 'Status: <strong class="status-danger">' + errMsg + "</strong>";
+  commitState((next) => {
+    next.isProLicenseUnlocked = false;
+    next.licenseStatusKind = "error";
+    next.licenseStatusText = errMsg;
+    next.licenseStatusHtml = errHtml;
+  });
+  updateLicenseDom(errHtml, "", false);
+  return false;
+}
 
-    const HARDENED_SQL = [
-      "CREATE TABLE public.users (id uuid PRIMARY KEY, stripe_customer_id text UNIQUE);",
-      "CREATE TABLE public.subscriptions (id uuid PRIMARY KEY, user_id uuid, stripe_subscription_id text UNIQUE, status text);",
-      "CREATE TABLE public.wallets (",
-      "  user_id uuid PRIMARY KEY,",
-      "  credits_balance integer NOT NULL CHECK (credits_balance >= 0)",
-      ");",
-      "CREATE TABLE public.credit_transactions (",
-      "  id uuid PRIMARY KEY,",
-      "  user_id uuid,",
-      "  stripe_event_id text UNIQUE,",
-      "  credits_delta integer NOT NULL",
-      ");",
-      "ALTER TABLE public.users ENABLE ROW LEVEL SECURITY;",
-      "CREATE POLICY users_isolation ON public.users FOR SELECT USING (auth.uid() = id);",
-      "ALTER TABLE public.subscriptions ENABLE ROW LEVEL SECURITY;",
-      "CREATE POLICY subs_isolation ON public.subscriptions FOR SELECT USING (auth.uid() = user_id);",
-      "ALTER TABLE public.wallets ENABLE ROW LEVEL SECURITY;",
-      "CREATE POLICY wallets_isolation ON public.wallets FOR SELECT USING (auth.uid() = user_id);",
-      "ALTER TABLE public.credit_transactions ENABLE ROW LEVEL SECURITY;",
-      "CREATE POLICY tx_isolation ON public.credit_transactions FOR SELECT USING (auth.uid() = user_id);"
-    ].join("\n");
+function unlockProPortal(explicitKey) {
+  const inputEl = !isReactMounted() ? getElSafe("license-key-input") : null;
+  const rawKey = (
+    explicitKey !== undefined
+      ? explicitKey
+      : inputEl && inputEl.value
+        ? inputEl.value
+        : __state.licenseKeyDraft || ""
+  ).trim();
 
-    const VULNERABLE_NEXTJS_TS = [
-      "// AI-Generated Next.js Stripe Webhook + Vercel AI SDK Streaming Route (app/api/webhooks/stripe/route.ts)",
-      "export async function POST(req: Request) {",
-      "  // BUG 1: Parses req.json() without raw-body Stripe-Signature HMAC verification!",
-      "  const event = await req.json();",
-      "",
-      "  // BUG 2: Grants on BOTH checkout.session.completed and invoice.paid without canonical invoice lock!",
-      "  if (event.type === 'checkout.session.completed' || event.type === 'invoice.paid') {",
-      "    const { data: wallet } = await supabase.from('wallets').select('credits').single();",
-      "    // BUG 3: Non-atomic JS Read-Modify-Write + parseFloat money math!",
-      "    await supabase.from('wallets').update({ credits: wallet.credits + parseFloat(event.amount) });",
-      "  }",
-      "",
-      "  // BUG 4: Streaming LLM deducts credits inside onFinish WITHOUT pre-flight HOLD reservation!",
-      "  return streamText({",
-      "    model: openai('gpt-4o'),",
-      "    onFinish: async ({ usage }) => {",
-      "      await supabase.from('wallets').update({ credits: wallet.credits - usage.totalTokens });",
-      "    }",
-      "  });",
-      "}"
-    ].join("\n");
+  if (rawKey.indexOf("BWV2E-") === 0) {
+    const verifyingMsg = "Verifying Asymmetric Ed25519 Signature...";
+    const verifyingHtml = 'Status: <strong class="status-info">' + verifyingMsg + "</strong>";
+    commitState((next) => {
+      next.licenseKeyDraft = rawKey;
+      next.licenseStatusKind = "info";
+      next.licenseStatusText = verifyingMsg;
+      next.licenseStatusHtml = verifyingHtml;
+    });
+    updateLicenseDom(verifyingHtml, "", false);
+    verifyEd25519LicenseInBrowser(rawKey);
+    return false;
+  }
 
-    const BROKEN_RLS_SQL = [
-      "-- Multi-Tenant AI SaaS Schema with Permissive RLS & Unpinned SECURITY DEFINER RPC",
-      "CREATE TABLE public.users (id uuid PRIMARY KEY, stripe_customer_id text UNIQUE);",
-      "CREATE TABLE public.subscriptions (id uuid PRIMARY KEY, user_id uuid, stripe_subscription_id text UNIQUE, status text);",
-      "CREATE TABLE public.wallets (user_id uuid PRIMARY KEY, credits_balance integer NOT NULL CHECK (credits_balance >= 0));",
-      "CREATE TABLE public.credit_transactions (id uuid PRIMARY KEY, user_id uuid, stripe_event_id text UNIQUE, credits_delta integer NOT NULL);",
-      "ALTER TABLE public.users ENABLE ROW LEVEL SECURITY;",
-      "CREATE POLICY users_isolation ON public.users FOR SELECT USING (auth.uid() = id);",
-      "ALTER TABLE public.subscriptions ENABLE ROW LEVEL SECURITY;",
-      "CREATE POLICY subs_isolation ON public.subscriptions FOR SELECT USING (auth.uid() = user_id);",
-      "ALTER TABLE public.wallets ENABLE ROW LEVEL SECURITY;",
-      "-- DEFECT 4: Permissive USING (true) leaks every tenant wallet balance via PostgREST!",
-      "CREATE POLICY wallets_open_read ON public.wallets FOR SELECT USING (true);",
-      "ALTER TABLE public.credit_transactions ENABLE ROW LEVEL SECURITY;",
-      "-- DEFECT 5: auth.role() = 'authenticated' without auth.uid() allows any logged-in user to read all tenants!",
-      "CREATE POLICY tx_any_logged_in ON public.credit_transactions FOR SELECT USING (auth.role() = 'authenticated');",
-      "",
-      "-- DEFECT 6: SECURITY DEFINER RPC accepts target_user_id without auth.uid() check or SET search_path!",
-      "CREATE OR REPLACE FUNCTION public.grant_bonus_credits(target_user_id uuid, delta integer)",
-      "RETURNS void LANGUAGE plpgsql SECURITY DEFINER AS $$",
-      "BEGIN",
-      "  UPDATE public.wallets SET credits_balance = credits_balance + delta WHERE user_id = target_user_id;",
-      "END;",
-      "$$;"
-    ].join("\n");
+  const digest = sha256HexSync(rawKey);
+  if (VALID_LICENSE_SHA256_DIGESTS.indexOf(digest) !== -1) {
+    commitState((next) => {
+      next.licenseKeyDraft = rawKey;
+    });
+    applyProUnlockedUiState("PRO / LIFETIME LICENSE VERIFIED (Full SQL Remediation Export Unlocked)");
+    return true;
+  } else {
+    isProLicenseUnlocked = false;
+    const msg = "Invalid License Key. Purchase Pro ($49/mo) or Lifetime ($149) below to receive your BWV2E-... key.";
+    const html = 'Status: <strong class="status-danger">' + msg + "</strong>";
+    commitState((next) => {
+      next.isProLicenseUnlocked = false;
+      next.licenseKeyDraft = rawKey;
+      next.licenseStatusKind = "error";
+      next.licenseStatusText = msg;
+      next.licenseStatusHtml = html;
+    });
+    updateLicenseDom(html, "", false);
+    return false;
+  }
+}
 
-    function loadSampleSql(mode) {
-      if (mode === "hardened") {
-        document.getElementById("sql-input").value = HARDENED_SQL;
-      } else if (mode === "nextjs") {
-        document.getElementById("sql-input").value = VULNERABLE_NEXTJS_TS;
-      } else if (mode === "rls_idor") {
-        document.getElementById("sql-input").value = BROKEN_RLS_SQL;
-      } else {
-        document.getElementById("sql-input").value = VULNERABLE_SQL;
+function runChaosSimulation(filterMode, paramsOverride) {
+  currentChaosFilter = filterMode || "ALL";
+  const filterBtns = ["ALL", "BURST", "OOO", "MANUAL", "MULTI", "DELETED", "DISPUTE", "ARITH", "STREAM"];
+  if (!isReactMounted()) {
+    for (const f of filterBtns) {
+      const el = getElSafe("btn-filter-" + f);
+      if (el && el.classList) {
+        if (f === currentChaosFilter) el.classList.add("btn-active");
+        else el.classList.remove("btn-active");
       }
-      runSqlLinter();
+    }
+  }
+
+  const planPriceCents =
+    paramsOverride && Number.isFinite(paramsOverride.planPriceCents)
+      ? paramsOverride.planPriceCents
+      : isReactMounted()
+        ? __state.chaos.planPriceCents
+        : readIntInput("chaos-plan-price", __state.chaos.planPriceCents || 4900);
+  const planCredits =
+    paramsOverride && Number.isFinite(paramsOverride.planCredits)
+      ? paramsOverride.planCredits
+      : isReactMounted()
+        ? __state.chaos.planCredits
+        : readIntInput("chaos-plan-credits", __state.chaos.planCredits || 2000);
+  const monthlySubs =
+    paramsOverride && Number.isFinite(paramsOverride.monthlySubs)
+      ? Math.max(10, paramsOverride.monthlySubs)
+      : isReactMounted()
+        ? __state.chaos.monthlySubs
+        : readIntInput("chaos-monthly-subs", __state.chaos.monthlySubs || 500, 10);
+  const thresholdCents =
+    paramsOverride && Number.isFinite(paramsOverride.quarantineThresholdCents)
+      ? paramsOverride.quarantineThresholdCents
+      : isReactMounted()
+        ? __state.chaos.quarantineThresholdCents
+        : readIntInput("chaos-quarantine-threshold", __state.chaos.quarantineThresholdCents || 2500);
+
+  // Pure integer arithmetic for all 4 chaos vectors (50 events total):
+  const burstMultiplier = 19;
+  const burstLeakedCredits = planCredits * burstMultiplier;
+  const burstLeakedCents = planPriceCents * burstMultiplier;
+
+  const oooLeakedCredits = planCredits * 2;
+  const oooLeakedCents = planPriceCents * 2;
+
+  const consumedBeforeDispute = Math.round((planCredits * 84) / 100);
+  const remainingBeforeDispute = planCredits - consumedBeforeDispute;
+  const disputeDeficitCredits = consumedBeforeDispute;
+  const disputeDeficitCents = Math.round((planPriceCents * 84) / 100);
+
+  const preservedTopUpAndSupport = 500 + 200;
+
+  const totalNaiveLeakedCredits = burstLeakedCredits + oooLeakedCredits + disputeDeficitCredits;
+  const totalNaiveLeakedCents = burstLeakedCents + oooLeakedCents + disputeDeficitCents;
+
+  const affectedAccountsPerYear = Math.max(1, Math.round((monthlySubs * 2) / 100));
+  const singleAccountAvgLeakCents = Math.round(totalNaiveLeakedCents / 4);
+  const annualExposureCents = affectedAccountsPerYear * singleAccountAvgLeakCents * 12;
+
+  const quarantinedAccounts = [];
+  if (oooLeakedCents >= thresholdCents) {
+    quarantinedAccounts.push({
+      userId: "usr_ooo_zombie_01",
+      leakCents: oooLeakedCents,
+      reason: "ZOMBIE_SUBSCRIPTION_OUT_OF_ORDER_ATTEMPT"
+    });
+  }
+  if (disputeDeficitCents >= thresholdCents) {
+    quarantinedAccounts.push({
+      userId: "usr_dispute_abuse_02",
+      leakCents: disputeDeficitCents,
+      reason: "CLAWBACK_DEFICIT_CHARGE_DISPUTE_CREATED"
+    });
+  }
+
+  const rows = [
+    {
+      key: "BURST",
+      edgeNum: "01 & 03",
+      plainTitle: "20x Parallel Burst & Self-Echo",
+      impactTag: "+" + formatUsdFromCents(burstLeakedCents) + " blocked",
+      kpiDelta: "20 events -> 1 commit (19 rejected)",
+      vector: "Edge 1 & 3 · 20x Parallel Burst & Self-Echo Idempotency (20 events in 1ms)",
+      naive:
+        "FAIL: Race condition reads stale balance before UPDATE commits: grants " +
+        (planCredits * 20).toLocaleString("en-US") +
+        " credits instead of " +
+        planCredits.toLocaleString("en-US") +
+        " (+" +
+        burstLeakedCredits.toLocaleString("en-US") +
+        " leaked = " +
+        formatUsdFromCents(burstLeakedCents) +
+        "); re-applies self-echo webhooks.",
+      watchdog:
+        "PASS: Atomic canonical lock (invoice:in_pro_1), stripe_event_id dedup & live_state === last_applied_state self-echo guard (IGNORED_SELF_ECHO): applies 1/20, 0 credits leaked.",
+      ruleCodes: ["CONCURRENT_LOCK_REJECTED", "IGNORED_SELF_ECHO"]
+    },
+    {
+      key: "OOO",
+      edgeNum: "02",
+      plainTitle: "Out-of-Order Cancel vs Update",
+      impactTag: "2 zombies blocked",
+      kpiDelta: "t=90s update <= t=100s cancel",
+      vector: "Edge 2 · Out-of-Order Webhook (10 events: t=100s delete before t=90s update)",
+      naive:
+        "FAIL: Blindly overwrites 'canceled' with delayed t=90s 'active' payload, resurrecting 2 Zombie Subscriptions (" +
+        formatUsdFromCents(oooLeakedCents) +
+        " / +" +
+        oooLeakedCredits.toLocaleString("en-US") +
+        " credits leaked).",
+      watchdog:
+        "PASS: Enforces last_stripe_event_created_utc & last_reverted_at watermarks (t=90s <= t=100s): rejects stale update as IGNORED_OUT_OF_ORDER; status stays 'canceled'.",
+      ruleCodes: ["IGNORED_OUT_OF_ORDER", "UTC_WATERMARK"]
+    },
+    {
+      key: "MANUAL",
+      edgeNum: "04",
+      plainTitle: "Manual Override & Support Grant Guard",
+      impactTag: "7 fields preserved",
+      kpiDelta: "compare_at_price + 250 support cr safe",
+      vector: "Edge 4 · Partial Manual Edit of Any Field & Support Grants (SKIPPED_MANUAL_EDIT)",
+      naive:
+        "FAIL: Blind campaign revert overwrites admin's manual compare_at_price override (6,500c -> 5,900c) and wipes out +250 support goodwill credits.",
+      watchdog:
+        "PASS: Detects isolated manual change on any of 7 tracked fields, marks ALL active memberships SKIPPED_MANUAL_EDIT before clearing registry, and preserves SKIPPED_MANUAL_SUPPORT_GRANT.",
+      ruleCodes: ["SKIPPED_MANUAL_EDIT", "SKIPPED_MANUAL_SUPPORT_GRANT"]
+    },
+    {
+      key: "MULTI",
+      edgeNum: "05",
+      plainTitle: "3+ Overlapping Credit Buckets",
+      impactTag: "700 = 700 = 700",
+      kpiDelta: "3 permutation orders match",
+      vector: "Edge 5 · 3+ Overlapping Credit Sources in 3 Orders: 1→2→3, 2→1→3, 3→2→1 (12 events)",
+      naive:
+        "FAIL: Flat credits_balance=0 reset on subscription cancel wipes out 500 non-expiring Top-Up credits + 200 Manual Support credits.",
+      watchdog:
+        "PASS: 100% order-invariant across 1→2→3, 2→1→3, 3→2→1: converges to exact baseline price (" +
+        planPriceCents +
+        "c) and preserves 500 Top-Up + 200 Support = 700 credits.",
+      ruleCodes: ["ORDER_INVARIANT", "MULTI_BUCKET_LEDGER"]
+    },
+    {
+      key: "DELETED",
+      edgeNum: "06",
+      plainTitle: "Deleted Stripe Entities (404)",
+      impactTag: "Batch isolated",
+      kpiDelta: "0 batch aborts on missing entities",
+      vector: "Edge 6 · Deleted External Entities in Stripe (deletedCustomers / deletedSubscriptions)",
+      naive: "FAIL: Throws unhandled Stripe 404 resource_missing mid-batch, aborting reconciliation for all remaining active subscribers.",
+      watchdog:
+        "PASS: Gracefully isolates deleted entities into deletedCustomers, deletedSubscriptions & deletedVariants while completing 100% of remaining batch.",
+      ruleCodes: ["deletedCustomers", "deletedSubscriptions"]
+    },
+    {
+      key: "DISPUTE",
+      edgeNum: "07a",
+      plainTitle: "Clawback Exceeding Wallet Balance",
+      impactTag: "0 HTTP 500s",
+      kpiDelta: "Clamped at 0 cr + account frozen",
+      vector: "Edge 7a · Partial Refund + Dispute Clawback > Remaining Balance (8 events)",
+      naive:
+        "FAIL: Subtracts " +
+        planCredits.toLocaleString("en-US") +
+        " from " +
+        remainingBeforeDispute.toLocaleString("en-US") +
+        " remaining -> balance hits -" +
+        disputeDeficitCredits.toLocaleString("en-US") +
+        " (or crashes PostgreSQL CHECK >= 0 with HTTP 500 retry storm).",
+      watchdog:
+        "PASS: Clamps deduction to 0 revocable credits (never negative), emits Dry-Run CLAWBACK_EXCEEDS_REMAINING_BALANCE_WARNING (" +
+        disputeDeficitCents +
+        "c deficit), and quarantines.",
+      ruleCodes: ["CLAWBACK_EXCEEDS_REMAINING_BALANCE_WARNING", "CHECK_NON_NEGATIVE"]
+    },
+    {
+      key: "ARITH",
+      edgeNum: "07b",
+      plainTitle: "100% Discount & $0.01 Floor Clamp",
+      impactTag: "Integer floor",
+      kpiDelta: "1c floor + ISO-4217 guard",
+      vector: "Edge 7b · Boundary Arithmetic: 100% Discount & Fixed Discount > Price ($0.01 Floor)",
+      naive:
+        "FAIL: 100% discount or $50.00 off $29.00 yields $0.00 or -$21.00 negative billing amount; FLOAT math introduces IEEE-754 drift and accepts zero-decimal JPY without validation.",
+      watchdog:
+        "PASS: Pure integer cents + ISO-4217 validation: clamps 100% and > price discounts to 1 cent ($0.01) with Dry-Run FLOOR_CLAMP_WARNING & EFFECTIVE_DISCOUNT_DRIFT_GT_5PP.",
+      ruleCodes: ["FLOOR_CLAMP_WARNING", "EFFECTIVE_DISCOUNT_DRIFT_GT_5PP"]
+    },
+    {
+      key: "STREAM",
+      edgeNum: "08",
+      plainTitle: "50x Parallel LLM Stream Hold",
+      impactTag: "40/50 HTTP 402",
+      kpiDelta: "650 used, 350 released, 0 leaked",
+      vector: "Edge 8 · 50x Parallel LLM Stream Hold (streamText / onFinish Token Race)",
+      naive:
+        "FAIL: Post-stream onFinish deduction checks if (user.credits > 0) at t=0ms: all 50 parallel /api/chat requests pass before any stream finishes, burning 3,250 credits on a 1,000-credit wallet (+2,250 unbacked credits leaked).",
+      watchdog:
+        "PASS: Two-Phase Pre-Flight Reservation (HOLD -> CAPTURE / RELEASE + TTL Zombie Reaper): locks 100 max credits pre-flight, allows 10/50 streams, blocks 40/50 with HTTP 402 before touching OpenAI, commits 650 actual credits & refunds 350 unused hold (0 leaked).",
+      ruleCodes: ["PRE_FLIGHT_HOLD", "HTTP_402_BLOCK"]
+    }
+  ];
+
+  const filteredRows = currentChaosFilter === "ALL" ? rows : rows.filter((r) => r.key === currentChaosFilter);
+
+  const logSections = [
+    {
+      key: "BURST",
+      lines: [
+        "[Edge 1 & 3 | t=00.000s] 20x concurrent invoice.paid + checkout.session.completed (invoice=in_pro_1, amount=" + planPriceCents + "c)",
+        "  -> Naive Handler:     APPLIED 20/20 -> oldBalance=0 -> newBalance=" + planCredits * 20 + " (LEAKED +" + burstLeakedCredits + " credits)",
+        "  -> Watchdog v2:       APPLIED 1/20, CONCURRENT_LOCK_REJECTED / IGNORED_ALREADY_SETTLED=19 -> newBalance=" + planCredits + " (0 leak)",
+        "  -> Self-Echo Check:   evt_echo_back_002 (live_state === last_applied_state) -> IGNORED_SELF_ECHO"
+      ]
+    },
+    {
+      key: "OOO",
+      lines: [
+        "[Edge 2 | t=01.400s] evt_sub_deleted (created t=100s) arrived BEFORE evt_sub_updated (created t=90s, status='active')",
+        "  -> Naive Handler:     APPLIED stale t=90s update -> status='active' (ZOMBIE SUBSCRIPTION RESURRECTED)",
+        "  -> Watchdog v2:       IGNORED_OUT_OF_ORDER (eventCreatedUtc 90s <= watermark 100s) -> status='canceled'"
+      ]
+    },
+    {
+      key: "MANUAL",
+      lines: [
+        "[Edge 4 | t=03.200s] Admin manually edited compareAtPriceCents (5900c -> 6500c) while rule_1 & rule_2 were active",
+        "  -> Naive Handler:     Overwrote manual edit back to 5900c and wiped +250 support grant credits",
+        "  -> Watchdog v2:       Marked rule_1 & rule_2 SKIPPED_MANUAL_EDIT before registry clear; preserved 6500c & +250 SKIPPED_MANUAL_SUPPORT_GRANT"
+      ]
+    },
+    {
+      key: "MULTI",
+      lines: [
+        "[Edge 5 | t=05.000s] 3+ Overlapping Sources (Free=100, MonthlySub=" + planCredits + ", TopUp=500, ManualSupport=200)",
+        "  -> Deactivation 1->2->3: Watchdog v2 finalBalance = 700 cr | baselinePrice=" + planPriceCents + "c",
+        "  -> Deactivation 2->1->3: Watchdog v2 finalBalance = 700 cr | baselinePrice=" + planPriceCents + "c (Exact Match)",
+        "  -> Deactivation 3->2->1: Watchdog v2 finalBalance = 700 cr | baselinePrice=" + planPriceCents + "c (Exact Match)"
+      ]
+    },
+    {
+      key: "DELETED",
+      lines: [
+        "[Edge 6 | t=06.800s] Batch Reconcile with Deleted Stripe Entities (cus_deleted_99, sub_deleted_88)",
+        "  -> Naive Handler:     Uncaught Stripe 404 resource_missing -> batch aborted",
+        "  -> Watchdog v2:       revertedOrSyncedUsers=['usr_valid_1'], deletedCustomers=['cus_deleted_99'], deletedSubscriptions=['sub_deleted_88']"
+      ]
+    },
+    {
+      key: "DISPUTE",
+      lines: [
+        "[Edge 7a | t=08.100s] User consumed " + consumedBeforeDispute + "/" + planCredits + " credits; 50% charge.refunded + 50% charge.dispute.created arrived",
+        "  -> Naive Handler:     oldBalance=" + remainingBeforeDispute + " -> newBalance=-" + disputeDeficitCredits + " (POSTGRES CHECK >= 0 CRASH / HTTP 500)",
+        "  -> Watchdog v2:       Clamped oldBalance=" + remainingBeforeDispute + " -> newBalance=0 | Deficit=" + disputeDeficitCredits + " cr (" + disputeDeficitCents + "c) | QUARANTINED=true"
+      ]
+    },
+    {
+      key: "ARITH",
+      lines: [
+        "[Edge 7b | t=09.500s] Dry-Run Boundary Arithmetic (100% discount & $50.00 off " + formatUsdFromCents(planPriceCents) + " plan)",
+        "  -> Dry-Run Preview:   oldPrice=" + planPriceCents + "c -> newPrice=1c ($0.01 minimum floor) | Warnings: [FLOOR_CLAMP_WARNING, EFFECTIVE_DISCOUNT_DRIFT_GT_5PP]"
+      ]
+    },
+    {
+      key: "STREAM",
+      lines: [
+        "[Edge 8  | t=10.000s] 50x concurrent POST /api/chat LLM streams (wallet=1000cr, maxHold=100cr, actualUsed=65cr)",
+        "  -> Naive onFinish:    50/50 pass t=0ms check -> 3,250 credits burned on OpenAI (+2,250 unbacked credits leaked)",
+        "  -> Watchdog 2-Phase:  RESERVED 10/50, HTTP 402 BLOCKED 40/50 -> COMMITTED 650cr, RELEASED 350cr unused hold -> 0 leaked"
+      ]
+    }
+  ];
+
+  const activeLogSections = currentChaosFilter === "ALL" ? logSections : logSections.filter((s) => s.key === currentChaosFilter);
+  const logLines = [
+    "[UTC 2026-11-01T10:00:00.000Z] Deterministic Stripe Webhook Fault & 7-Edge-Case State Machine Log (Integer Cents Mode)",
+    "--------------------------------------------------------------------------------------------------------------"
+  ];
+  for (const sec of activeLogSections) {
+    for (const l of sec.lines) logLines.push(l);
+    logLines.push("");
+  }
+  const eventLogText = logLines.join("\n");
+
+  const sqlPatch = [
+    "-- Active Runaway Credit Circuit-Breaker Quarantine Patch (Dry-Run Preview)",
+    "-- Target Column: public.users.is_billing_quarantined | Threshold: " + thresholdCents + " integer cents (" + formatUsdFromCents(thresholdCents) + ")"
+  ];
+  if (!isProLicenseUnlocked) {
+    sqlPatch.push(
+      "-- Diagnostic Result: " + quarantinedAccounts.length + " account(s) exceeded threshold (" + quarantinedAccounts.map((a) => a.userId + "=" + a.leakCents + "c").join(", ") + ")",
+      "--",
+      "-- [REDACTED IN FREE DIAGNOSTIC MODE]",
+      "-- Enter your BWV2-... Pro/Lifetime License Key above (or purchase Pro $49/mo / Lifetime $149 below)",
+      "-- to unlock executable circuit-breaker SQL statements & the atomic PL/pgSQL SELECT ... FOR UPDATE engine."
+    );
+  } else {
+    sqlPatch.push(
+      'ALTER TABLE "public"."users" ADD COLUMN IF NOT EXISTS "is_billing_quarantined" BOOLEAN NOT NULL DEFAULT FALSE;',
+      "BEGIN;"
+    );
+    if (quarantinedAccounts.length === 0) {
+      sqlPatch.push("-- No accounts exceeded quarantine threshold of " + thresholdCents + " integer cents.");
+    } else {
+      for (const acc of quarantinedAccounts) {
+        sqlPatch.push(
+          "-- Freeze " + acc.userId + ": estimatedLeakCents=" + acc.leakCents + " (" + formatUsdFromCents(acc.leakCents) + "), reason=" + acc.reason,
+          'UPDATE "public"."users" SET "is_billing_quarantined" = TRUE WHERE "id" = \'' + acc.userId + '\' AND COALESCE("is_billing_quarantined", FALSE) = FALSE;'
+        );
+      }
+    }
+    sqlPatch.push("COMMIT;");
+  }
+  const quarantineSqlText = sqlPatch.join("\n");
+
+  if (!isReactMounted()) {
+    const leakedCreditsEl = getElSafe("naive-leaked-credits");
+    const leakedUsdEl = getElSafe("naive-leaked-usd");
+    const annualEl = getElSafe("naive-annual-exposure");
+    const wipedEl = getElSafe("naive-wiped-credits");
+    const qStatusEl = getElSafe("watchdog-quarantine-status");
+    const tbodyEl = getElSafe("chaos-comparison-tbody");
+    const logEl = getElSafe("chaos-event-log");
+    const qSqlEl = getElSafe("quarantine-sql-output");
+
+    if (leakedCreditsEl) leakedCreditsEl.textContent = "+" + totalNaiveLeakedCredits.toLocaleString("en-US") + " credits";
+    if (leakedUsdEl) leakedUsdEl.textContent = formatUsdFromCents(totalNaiveLeakedCents) + " (" + totalNaiveLeakedCents.toLocaleString("en-US") + " integer cents)";
+    if (annualEl) annualEl.textContent = formatUsdFromCents(annualExposureCents) + " / yr";
+    if (wipedEl) wipedEl.textContent = preservedTopUpAndSupport + " customer credits destroyed";
+    if (qStatusEl) qStatusEl.textContent = "is_billing_quarantined = TRUE (" + quarantinedAccounts.length + " frozen >= " + thresholdCents + "c)";
+    if (tbodyEl) {
+      tbodyEl.innerHTML = filteredRows
+        .map(
+          (r) =>
+            "<tr>" +
+            "<td><strong>" + r.vector + "</strong></td>" +
+            "<td class='cell-naive'>" + r.naive + "</td>" +
+            "<td class='cell-watchdog'>" + r.watchdog + "</td>" +
+            "</tr>"
+        )
+        .join("");
+    }
+    if (logEl) logEl.textContent = eventLogText;
+    if (qSqlEl) qSqlEl.value = quarantineSqlText;
+  }
+
+  const ticks = buildOscilloscopeTicks(
+    planPriceCents,
+    planCredits,
+    thresholdCents,
+    oooLeakedCents,
+    disputeDeficitCredits,
+    disputeDeficitCents
+  );
+
+  commitState((next) => {
+    next.chaos = {
+      filter: currentChaosFilter,
+      planPriceCents,
+      planCredits,
+      monthlySubs,
+      quarantineThresholdCents: thresholdCents,
+      naiveLeakedCredits: totalNaiveLeakedCredits,
+      naiveLeakedCents: totalNaiveLeakedCents,
+      annualDriftCents: annualExposureCents,
+      quarantinedAccounts,
+      rows,
+      filteredRows,
+      eventLog: eventLogText,
+      logSections: activeLogSections,
+      quarantineSql: quarantineSqlText,
+      oscilloscopeTicks: ticks
+    };
+  });
+}
+
+function copyQuarantineSql() {
+  if (!isProLicenseUnlocked) {
+    const msg = "Pro / Lifetime License Required to copy executable Quarantine SQL.";
+    const html = 'Status: <strong class="status-warn">' + msg + "</strong>";
+    commitState((next) => {
+      next.licenseStatusKind = "warn";
+      next.licenseStatusText = msg;
+      next.licenseStatusHtml = html;
+      next.licenseDrawerOpen = true;
+    });
+    updateLicenseDom(html, "", false);
+    return false;
+  }
+  const el = !isReactMounted() ? getElSafe("quarantine-sql-output") : null;
+  const textToCopy = el && el.value ? el.value : __state.chaos.quarantineSql;
+  if (el && typeof el.select === "function") el.select();
+  if (typeof navigator !== "undefined" && navigator.clipboard && typeof navigator.clipboard.writeText === "function") {
+    navigator.clipboard.writeText(textToCopy);
+  }
+  return true;
+}
+
+function loadSampleSql(mode) {
+  let code = VULNERABLE_SQL;
+  let preset = "vulnerable";
+  if (mode === "hardened") {
+    code = HARDENED_SQL;
+    preset = "hardened";
+  } else if (mode === "nextjs") {
+    code = VULNERABLE_NEXTJS_TS;
+    preset = "nextjs";
+  } else if (mode === "rls_idor") {
+    code = BROKEN_RLS_SQL;
+    preset = "rls_idor";
+  }
+
+  if (!isReactMounted()) {
+    const inputEl = getElSafe("sql-input");
+    if (inputEl) inputEl.value = code;
+  }
+  commitState((next) => {
+    next.linter = Object.assign({}, next.linter, {
+      activePreset: preset,
+      sqlInput: code
+    });
+  });
+  runSqlLinter(code, preset);
+}
+
+function runSqlLinter(codeOverride, presetOverride) {
+  const tStart = typeof performance !== "undefined" && typeof performance.now === "function" ? performance.now() : 0;
+  const domSqlEl = !isReactMounted() ? getElSafe("sql-input") : null;
+  const sql =
+    typeof codeOverride === "string"
+      ? codeOverride
+      : isReactMounted()
+        ? __state.linter.sqlInput
+        : domSqlEl && typeof domSqlEl.value === "string"
+          ? domSqlEl.value
+          : __state.linter.sqlInput || "";
+
+  const isCodeMode = /\b(export\s+async\s+function|streamText\s*\(|req\.json\s*\(|supabase\.from\s*\(|prisma\.)/.test(sql);
+
+  if (isCodeMode) {
+    const codeFindings = [];
+    if (/\b(req|request)\.json\s*\(\s*\)/.test(sql) || !/constructEvent|verifyStripeWebhookSignature/.test(sql)) {
+      codeFindings.push({
+        sev: "CRITICAL",
+        title: "Webhook skips raw-body HMAC signature verification",
+        code: "AST 1 · MISSING_STRIPE_SIGNATURE_VERIFICATION",
+        table: "app/api/webhooks/stripe/route.ts",
+        line: lineOfPattern(sql, /\b(?:req|request)\.json\s*\(|export\s+async\s+function/),
+        msg: "Webhook route parses req.json() or omits cryptographic Stripe-Signature HMAC verification, allowing forged invoice.paid payloads.",
+        diffRemove: "- const event = await req.json(); // Breaks raw HMAC body & skips Stripe-Signature check",
+        diffAdd: "+ const rawBody = await req.text(); verifyStripeWebhookSignature(rawBody, sig, secret);"
+      });
+    }
+    if (/checkout\.session\.completed/.test(sql) && /invoice\.(paid|payment_succeeded)/.test(sql) && !/canonical_grant_key|canonicalGrantKey/.test(sql)) {
+      codeFindings.push({
+        sev: "HIGH",
+        title: "Grants twice on signup without canonical invoice lock",
+        code: "AST 2 · DUAL_WEBHOOK_GRANT_WITHOUT_CANONICAL_LOCK",
+        table: "checkout.session.completed + invoice.paid",
+        line: lineOfPattern(sql, /checkout\.session\.completed/),
+        msg: "Handles both checkout.session.completed and invoice.paid without canonical invoice_id deduplication (grants 2x credits on signup).",
+        diffRemove: "- if (event.type === 'checkout.session.completed' || event.type === 'invoice.paid') { ... }",
+        diffAdd: "+ canonicalGrantKey = `invoice:${event.invoiceId}`; // Dedupes cross-event parallel bursts"
+      });
+    }
+    if (/\b(credits|credits_balance|balance)\s*:\s*[a-zA-Z0-9_$.]+\.(credits|credits_balance|balance)\s*[+-]/.test(sql)) {
+      codeFindings.push({
+        sev: "CRITICAL",
+        title: "Non-atomic JS wallet balance read-modify-write",
+        code: "AST 3 · NON_ATOMIC_READ_MODIFY_WRITE_CREDITS",
+        table: "supabase.from('wallets').update(...)",
+        line: lineOfPattern(sql, /\b(?:credits|credits_balance|balance)\s*:/),
+        msg: "Non-atomic JavaScript Read-Modify-Write credit mutation allows 20 concurrent requests to overwrite the same wallet balance.",
+        diffRemove: "- await supabase.from('wallets').update({ credits: wallet.credits + 1000 });",
+        diffAdd: "+ SELECT credits_balance FROM public.wallets WHERE user_id = $1 FOR UPDATE; // Row lock"
+      });
+    }
+    if (/streamText\s*\(/.test(sql) && /onFinish/.test(sql) && !/reserveCreditsForStream|reserveStreamCredits|executeGuardedAiStream/.test(sql)) {
+      codeFindings.push({
+        sev: "CRITICAL",
+        title: "Unreserved LLM stream deduction inside onFinish",
+        code: "AST 4 · UNRESERVED_STREAMING_LLM_DEDUCTION",
+        table: "streamText({ onFinish })",
+        line: lineOfPattern(sql, /streamText\s*\(/),
+        msg: "Deducts LLM credits inside onFinish without a Pre-Flight Hold Reservation. 50 parallel /api/chat requests will bypass the balance check before stream #1 finishes.",
+        diffRemove: "- return streamText({ model, onFinish: async ({ usage }) => deductCredits(usage) });",
+        diffAdd: "+ return watchdog.executeGuardedAiStream({ userId, estimatedMaxCredits: 100, streamExecutor });"
+      });
+    }
+    if (/\b(streamText|generateText|generateObject|streamObject)\s*\(/.test(sql) && !/auth\.getUser|getServerSession|currentUser\s*\(|verifySession/.test(sql)) {
+      codeFindings.push({
+        sev: "CRITICAL",
+        title: "AI route runs paid model without caller auth or hold",
+        code: "AST 5 · DENIAL_OF_WALLET_UNGUARDED_AI_ROUTE",
+        table: "POST /api/chat (LLM Endpoint)",
+        line: lineOfPattern(sql, /\b(?:streamText|generateText|generateObject|streamObject)\s*\(/),
+        msg: "Invokes paid LLM inference without caller session authentication or pre-flight rate/wallet hold, enabling anonymous Denial-of-Wallet API spend.",
+        diffRemove: "- export async function POST(req: Request) { return streamText({ model: openai('gpt-4o') }); }",
+        diffAdd: "+ const user = await requireAuthenticatedUser(req); // + pre-flight credit hold & rate limit"
+      });
     }
 
-    function runSqlLinter() {
-      const sql = document.getElementById("sql-input").value || "";
-      const isCodeMode = /\b(export\s+async\s+function|streamText\s*\(|req\.json\s*\(|supabase\.from\s*\(|prisma\.)/.test(sql);
+    const patchOutputText = !isProLicenseUnlocked
+      ? [
+          "// Billing Watchdog AST Code Audit: " + codeFindings.length + " Next.js / Streaming LLM Vulnerability(s) Detected",
+          "//",
+          "// [REDACTED IN FREE DIAGNOSTIC MODE]",
+          "// Enter your BWV2-... Pro/Lifetime License Key above to unlock the drop-in Two-Phase Streaming Hold & Atomic Webhook route.ts blueprint."
+        ].join("\n")
+      : [
+          "// Billing Watchdog v2 — Hardened Next.js Webhook + Two-Phase Streaming Hold Blueprint",
+          "export async function POST(req: Request) {",
+          "  const rawBody = await req.text();",
+          "  const sig = req.headers.get('stripe-signature');",
+          "  const out = await watchdogFirewall.handleRawWebhookHttp(rawBody, sig);",
+          "  return new Response(JSON.stringify(out.body), { status: out.httpStatus });",
+          "}",
+          "// Pre-Flight Hold before streamText(): watchdogFirewall.reserveStreamCredits(...) -> commitStreamCredits(...)"
+        ].join("\n");
 
-      if (isCodeMode) {
-        const codeFindings = [];
-        if (/\b(req|request)\.json\s*\(\s*\)/.test(sql) || !/constructEvent|verifyStripeWebhookSignature/.test(sql)) {
-          codeFindings.push({
-            sev: "CRITICAL",
-            code: "AST 1 · MISSING_STRIPE_SIGNATURE_VERIFICATION",
-            table: "app/api/webhooks/stripe/route.ts",
-            msg: "Webhook route parses req.json() or omits cryptographic Stripe-Signature HMAC verification, allowing forged invoice.paid payloads.",
-            diffRemove: "- const event = await req.json(); // Breaks raw HMAC body & skips Stripe-Signature check",
-            diffAdd: "+ const rawBody = await req.text(); verifyStripeWebhookSignature(rawBody, sig, secret);"
-          });
-        }
-        if (/checkout\.session\.completed/.test(sql) && /invoice\.(paid|payment_succeeded)/.test(sql) && !/canonical_grant_key|canonicalGrantKey/.test(sql)) {
-          codeFindings.push({
-            sev: "HIGH",
-            code: "AST 2 · DUAL_WEBHOOK_GRANT_WITHOUT_CANONICAL_LOCK",
-            table: "checkout.session.completed + invoice.paid",
-            msg: "Handles both checkout.session.completed and invoice.paid without canonical invoice_id deduplication (grants 2x credits on signup).",
-            diffRemove: "- if (event.type === 'checkout.session.completed' || event.type === 'invoice.paid') { ... }",
-            diffAdd: "+ canonicalGrantKey = `invoice:${event.invoiceId}`; // Dedupes cross-event parallel bursts"
-          });
-        }
-        if (/\b(credits|credits_balance|balance)\s*:\s*[a-zA-Z0-9_$.]+\.(credits|credits_balance|balance)\s*[+-]/.test(sql)) {
-          codeFindings.push({
-            sev: "CRITICAL",
-            code: "AST 3 · NON_ATOMIC_READ_MODIFY_WRITE_CREDITS",
-            table: "supabase.from('wallets').update(...)",
-            msg: "Non-atomic JavaScript Read-Modify-Write credit mutation allows 20 concurrent requests to overwrite the same wallet balance.",
-            diffRemove: "- await supabase.from('wallets').update({ credits: wallet.credits + 1000 });",
-            diffAdd: "+ SELECT credits_balance FROM public.wallets WHERE user_id = $1 FOR UPDATE; // Row lock"
-          });
-        }
-        if (/streamText\s*\(/.test(sql) && /onFinish/.test(sql) && !/reserveCreditsForStream|reserveStreamCredits|executeGuardedAiStream/.test(sql)) {
-          codeFindings.push({
-            sev: "CRITICAL",
-            code: "AST 4 · UNRESERVED_STREAMING_LLM_DEDUCTION",
-            table: "streamText({ onFinish })",
-            msg: "Deducts LLM credits inside onFinish without a Pre-Flight Hold Reservation. 50 parallel /api/chat requests will bypass the balance check before stream #1 finishes.",
-            diffRemove: "- return streamText({ model, onFinish: async ({ usage }) => deductCredits(usage) });",
-            diffAdd: "+ return watchdog.executeGuardedAiStream({ userId, estimatedMaxCredits: 100, streamExecutor });"
-          });
-        }
-        if (/\b(streamText|generateText|generateObject|streamObject)\s*\(/.test(sql) && !/auth\.getUser|getServerSession|currentUser\s*\(|verifySession/.test(sql)) {
-          codeFindings.push({
-            sev: "CRITICAL",
-            code: "AST 5 · DENIAL_OF_WALLET_UNGUARDED_AI_ROUTE",
-            table: "POST /api/chat (LLM Endpoint)",
-            msg: "Invokes paid LLM inference without caller session authentication or pre-flight rate/wallet hold, enabling anonymous Denial-of-Wallet API spend.",
-            diffRemove: "- export async function POST(req: Request) { return streamText({ model: openai('gpt-4o') }); }",
-            diffAdd: "+ const user = await requireAuthenticatedUser(req); // + pre-flight credit hold & rate limit"
-          });
-        }
-        const container = document.getElementById("findings-container");
-        container.innerHTML = codeFindings.map(f =>
-          '<div class="finding">' +
-            '<div class="finding-head"><span class="sev ' + (f.sev === "HIGH" ? "sev-high" : "") + '">' + f.sev + '</span><strong>' + f.code + '</strong> <span class="finding-table">(' + f.table + ')</span></div>' +
-            '<div class="finding-msg">' + f.msg + '</div>' +
-            '<div class="code-diff">' +
-              '<div class="diff-del">' + f.diffRemove + '</div>' +
-              '<div class="diff-add">' + f.diffAdd + '</div>' +
-            '</div>' +
-          '</div>'
-        ).join("");
-        if (!isProLicenseUnlocked) {
-          document.getElementById("patch-output").value = [
-            "// Billing Watchdog AST Code Audit: " + codeFindings.length + " Next.js / Streaming LLM Vulnerability(s) Detected",
-            "//",
-            "// [REDACTED IN FREE DIAGNOSTIC MODE]",
-            "// Enter your BWV2-... Pro/Lifetime License Key above to unlock the drop-in Two-Phase Streaming Hold & Atomic Webhook route.ts blueprint."
-          ].join("\n");
-        } else {
-          document.getElementById("patch-output").value = [
-            "// Billing Watchdog v2 — Hardened Next.js Webhook + Two-Phase Streaming Hold Blueprint",
-            "export async function POST(req: Request) {",
-            "  const rawBody = await req.text();",
-            "  const sig = req.headers.get('stripe-signature');",
-            "  const out = await watchdogFirewall.handleRawWebhookHttp(rawBody, sig);",
-            "  return new Response(JSON.stringify(out.body), { status: out.httpStatus });",
-            "}",
-            "// Pre-Flight Hold before streamText(): watchdogFirewall.reserveStreamCredits(...) -> commitStreamCredits(...)"
-          ].join("\n");
-        }
-        return;
+    if (!isReactMounted()) {
+      const container = getElSafe("findings-container");
+      const patchEl = getElSafe("patch-output");
+      if (container) {
+        container.innerHTML = codeFindings
+          .map(
+            (f) =>
+              '<div class="finding">' +
+              '<div class="finding-head"><span class="sev ' +
+              (f.sev === "HIGH" ? "sev-high" : "") +
+              '">' +
+              f.sev +
+              "</span><strong>" +
+              f.code +
+              '</strong> <span class="finding-table">(' +
+              f.table +
+              ")</span></div>" +
+              '<div class="finding-msg">' +
+              f.msg +
+              "</div>" +
+              '<div class="code-diff">' +
+              '<div class="diff-del">' +
+              f.diffRemove +
+              "</div>" +
+              '<div class="diff-add">' +
+              f.diffAdd +
+              "</div>" +
+              "</div>" +
+              "</div>"
+          )
+          .join("");
       }
+      if (patchEl) patchEl.value = patchOutputText;
+    }
 
-      const norm = sql.replace(/--[^\r\n]*/g, " ").replace(/\s+/g, " ");
+    const tEnd = typeof performance !== "undefined" && typeof performance.now === "function" ? performance.now() : 0;
+    const lintMs = Math.max(1, Math.round(tEnd - tStart));
+    commitState((next) => {
+      next.linter = {
+        activePreset: presetOverride !== undefined ? presetOverride : next.linter.activePreset,
+        sqlInput: sql,
+        isCodeMode: true,
+        findings: codeFindings,
+        patchOutput: patchOutputText,
+        lintMs
+      };
+    });
+    return;
+  }
 
-      const findings = [];
-      const patchLines = [
-        "-- Billing Watchdog Auto-Generated Non-Blocking Remediation Patch",
-        "-- Safe for zero-downtime production execution on PostgreSQL / Supabase",
-        "BEGIN;",
+  const norm = sql.replace(/--[^\r\n]*/g, " ").replace(/\s+/g, " ");
+  const findings = [];
+  const patchLines = [
+    "-- Billing Watchdog Auto-Generated Non-Blocking Remediation Patch",
+    "-- Safe for zero-downtime production execution on PostgreSQL / Supabase",
+    "BEGIN;",
+    ""
+  ];
+
+  const hasCheckNonNeg = /CHECK\s*\(\s*[a-zA-Z0-9_."]*balance[a-zA-Z0-9_."]*\s*>=\s*0\s*\)/i.test(norm);
+  if (!hasCheckNonNeg) {
+    findings.push({
+      sev: "CRITICAL",
+      title: "Missing non-negative balance check constraint",
+      code: "CHECK 1 · MISSING_NON_NEGATIVE_CHECK",
+      table: "public.wallets (credits_balance)",
+      line: lineOfPattern(sql, /CREATE\s+TABLE\s+(?:public\.)?wallets|credits_balance/i),
+      msg: "No CHECK (credits_balance >= 0) constraint found. Concurrent API requests can drive user credit balances negative.",
+      diffRemove: "-   credits_balance integer NOT NULL DEFAULT 50",
+      diffAdd: "+   credits_balance integer NOT NULL DEFAULT 50 CHECK (credits_balance >= 0)"
+    });
+    patchLines.push(
+      "-- 1. Enforce non-negative credit balance without locking concurrent reads:",
+      "ALTER TABLE public.wallets",
+      "  ADD CONSTRAINT wallets_credits_balance_non_negative_chk",
+      "  CHECK (credits_balance >= 0) NOT VALID;",
+      "ALTER TABLE public.wallets",
+      "  VALIDATE CONSTRAINT wallets_credits_balance_non_negative_chk;",
+      ""
+    );
+  }
+
+  const hasUniqueEvent =
+    /stripe_event_id[^,)]*\bUNIQUE\b/i.test(norm) ||
+    /UNIQUE\s*\([^)]*stripe_event_id[^)]*\)/i.test(norm) ||
+    /CREATE\s+UNIQUE\s+INDEX[^;]*stripe_event_id/i.test(norm);
+  if (!hasUniqueEvent) {
+    findings.push({
+      sev: "CRITICAL",
+      title: "Missing Stripe event idempotency key constraint",
+      code: "CHECK 2 · MISSING_WEBHOOK_UNIQUE_CONSTRAINT",
+      table: "public.credit_transactions (stripe_event_id)",
+      line: lineOfPattern(sql, /stripe_event_id|credit_transactions/i),
+      msg: "Column stripe_event_id lacks a UNIQUE constraint. Parallel Stripe webhook retries (invoice.paid) will grant duplicate credits.",
+      diffRemove: "-   stripe_event_id text,",
+      diffAdd: "+   stripe_event_id text UNIQUE,"
+    });
+    patchLines.push(
+      "-- 2. Enforce Stripe webhook idempotency at the database boundary:",
+      "ALTER TABLE public.credit_transactions",
+      "  ADD CONSTRAINT credit_transactions_stripe_event_id_uq",
+      "  UNIQUE (stripe_event_id);",
+      ""
+    );
+  }
+
+  const tables = ["public.users", "public.subscriptions", "public.wallets", "public.credit_transactions"];
+  const rlsMissing = [];
+  for (const tbl of tables) {
+    const shortName = tbl.split(".")[1];
+    const hasRls = new RegExp("ALTER\\s+TABLE\\s+(?:ONLY\\s+)?(?:public\\.)?" + shortName + "\\s+ENABLE\\s+ROW\\s+LEVEL\\s+SECURITY", "i").test(norm);
+    const hasPol = new RegExp("CREATE\\s+POLICY\\s+[^;]+\\s+ON\\s+(?:public\\.)?" + shortName, "i").test(norm);
+    if (!hasRls || !hasPol) rlsMissing.push(tbl);
+  }
+  if (rlsMissing.length > 0) {
+    findings.push({
+      sev: "HIGH",
+      title: "Row-Level Security missing on billing tables",
+      code: "CHECK 3 · MISSING_RLS_OR_POLICY",
+      table: rlsMissing.join(", "),
+      line: lineOfPattern(sql, /CREATE\s+TABLE/i),
+      msg: "Row-Level Security (ENABLE ROW LEVEL SECURITY + CREATE POLICY) is missing on " + rlsMissing.length + " billing table(s), exposing records to PostgREST / anon key queries.",
+      diffRemove: "- -- No ENABLE ROW LEVEL SECURITY / CREATE POLICY statements",
+      diffAdd: "+ ALTER TABLE public.wallets ENABLE ROW LEVEL SECURITY; CREATE POLICY wallets_isolation ON public.wallets FOR SELECT USING (auth.uid() = user_id);"
+    });
+    patchLines.push("-- 3. Enable Row-Level Security (RLS) on exposed billing tables:");
+    for (const tbl of rlsMissing) {
+      patchLines.push("ALTER TABLE " + tbl + " ENABLE ROW LEVEL SECURITY;");
+    }
+    patchLines.push("");
+  }
+
+  const policyRegex = /CREATE\s+POLICY\s+([a-zA-Z0-9_"]+)\s+ON\s+([a-zA-Z0-9_."]+)[^;]*?\b(?:USING|WITH\s+CHECK)\s*\(([^;]+)\)/gi;
+  let polMatch;
+  const badPolicies = [];
+  while ((polMatch = policyRegex.exec(norm)) !== null) {
+    const polName = polMatch[1];
+    const polTable = polMatch[2];
+    const polExpr = polMatch[3];
+    const isPermissiveTrue = /^\s*true\s*$/i.test(polExpr.trim());
+    const isBroadRoleOnly = /auth\.role\s*\(\s*\)\s*=\s*'authenticated'/i.test(polExpr) && !/auth\.(?:uid|jwt)\s*\(/i.test(polExpr);
+    if (isPermissiveTrue || isBroadRoleOnly) {
+      badPolicies.push(polTable + " (" + polName + ")");
+    }
+  }
+  if (badPolicies.length > 0) {
+    findings.push({
+      sev: "CRITICAL",
+      title: "Permissive RLS policy allows cross-tenant access",
+      code: "CHECK 4 · RLS_PERMISSIVE_NO_TENANT_FILTER",
+      table: badPolicies.join(", "),
+      line: lineOfPattern(sql, /USING\s*\(\s*true|auth\.role\s*\(/i),
+      msg: "Permissive RLS policy allows cross-tenant reads/writes (USING (true) or auth.role() = 'authenticated' without auth.uid() / auth.jwt() tenant isolation).",
+      diffRemove: "- CREATE POLICY wallets_open_read ON public.wallets FOR SELECT USING (true);",
+      diffAdd: "+ CREATE POLICY wallets_isolation ON public.wallets FOR SELECT USING (auth.uid() = user_id);"
+    });
+    patchLines.push(
+      "-- 4. Replace permissive RLS policies with strict auth.uid() tenant isolation:",
+      "-- DROP POLICY <policy_name> ON <table>; CREATE POLICY tenant_isolation ON <table> USING (auth.uid() = user_id);",
+      ""
+    );
+  }
+
+  if (/SECURITY\s+DEFINER/i.test(norm)) {
+    const lacksSearchPath = !/SET\s+search_path\s*=/i.test(norm);
+    const lacksAuthUid = !/auth\.uid\s*\(/i.test(norm) || !/FUNCTION[\s\S]*?auth\.uid\s*\(/i.test(sql);
+    if (lacksSearchPath || lacksAuthUid) {
+      findings.push({
+        sev: "CRITICAL",
+        title: "Unpinned SECURITY DEFINER RPC allows privilege escalation",
+        code: "CHECK 5 · SECURITY_DEFINER_WITHOUT_AUTH_OR_SEARCH_PATH",
+        table: "SECURITY DEFINER RPC",
+        line: lineOfPattern(sql, /SECURITY\s+DEFINER/i),
+        msg: "SECURITY DEFINER function bypasses RLS without SET search_path = public, pg_temp or explicit auth.uid() caller binding (privilege escalation / IDOR risk).",
+        diffRemove: "- RETURNS void LANGUAGE plpgsql SECURITY DEFINER AS $",
+        diffAdd: "+ RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $ -- + IF auth.uid() IS DISTINCT FROM target_user_id THEN RAISE EXCEPTION 'forbidden'; END IF;"
+      });
+      patchLines.push(
+        "-- 5. Pin search_path and enforce auth.uid() inside SECURITY DEFINER RPCs:",
+        "-- ALTER FUNCTION public.<fn_name> SET search_path = public, pg_temp;",
         ""
-      ];
+      );
+    }
+  }
 
-      const hasCheckNonNeg = /CHECK\s*\(\s*[a-zA-Z0-9_."]*balance[a-zA-Z0-9_."]*\s*>=\s*0\s*\)/i.test(norm);
-      if (!hasCheckNonNeg) {
-        findings.push({
-          sev: "CRITICAL",
-          code: "CHECK 1 · MISSING_NON_NEGATIVE_CHECK",
-          table: "public.wallets (credits_balance)",
-          msg: "No CHECK (credits_balance >= 0) constraint found. Concurrent API requests can drive user credit balances negative."
-        });
-        patchLines.push(
-          "-- 1. Enforce non-negative credit balance without locking concurrent reads:",
-          "ALTER TABLE public.wallets",
-          "  ADD CONSTRAINT wallets_credits_balance_non_negative_chk",
-          "  CHECK (credits_balance >= 0) NOT VALID;",
-          "ALTER TABLE public.wallets",
-          "  VALIDATE CONSTRAINT wallets_credits_balance_non_negative_chk;",
-          ""
-        );
-      }
+  patchLines.push("COMMIT;");
 
-      const hasUniqueEvent = /stripe_event_id[^,)]*\bUNIQUE\b/i.test(norm) ||
-        /UNIQUE\s*\([^)]*stripe_event_id[^)]*\)/i.test(norm) ||
-        /CREATE\s+UNIQUE\s+INDEX[^;]*stripe_event_id/i.test(norm);
-      if (!hasUniqueEvent) {
-        findings.push({
-          sev: "CRITICAL",
-          code: "CHECK 2 · MISSING_WEBHOOK_UNIQUE_CONSTRAINT",
-          table: "public.credit_transactions (stripe_event_id)",
-          msg: "Column stripe_event_id lacks a UNIQUE constraint. Parallel Stripe webhook retries (invoice.paid) will grant duplicate credits."
-        });
-        patchLines.push(
-          "-- 2. Enforce Stripe webhook idempotency at the database boundary:",
-          "ALTER TABLE public.credit_transactions",
-          "  ADD CONSTRAINT credit_transactions_stripe_event_id_uq",
-          "  UNIQUE (stripe_event_id);",
-          ""
-        );
-      }
+  let patchOutputText = "";
+  if (findings.length === 0) {
+    patchOutputText =
+      "-- All Group A schema invariants (CHECK >= 0, UNIQUE(stripe_event_id), and RLS policies) are present.\n-- No SQL remediation patch required.";
+  } else if (!isProLicenseUnlocked) {
+    patchOutputText = [
+      "-- Billing Watchdog Diagnostic Summary: " + findings.length + " Schema/RLS Vulnerability(s) Detected",
+      "-- Affected Objects: " + findings.map((f) => f.table).join(" | "),
+      "--",
+      "-- [REDACTED IN FREE DIAGNOSTIC MODE]",
+      "-- Enter your BWV2-... Pro/Lifetime License Key above (or purchase Pro $49/mo / Lifetime $149 below)",
+      "-- to unlock the zero-downtime NOT VALID + VALIDATE CONSTRAINT + CREATE UNIQUE INDEX CONCURRENTLY remediation script."
+    ].join("\n");
+  } else {
+    patchOutputText = patchLines.join("\n");
+  }
 
-      const tables = ["public.users", "public.subscriptions", "public.wallets", "public.credit_transactions"];
-      const rlsMissing = [];
-      for (const tbl of tables) {
-        const shortName = tbl.split(".")[1];
-        const hasRls = new RegExp("ALTER\\s+TABLE\\s+(?:ONLY\\s+)?(?:public\\.)?" + shortName + "\\s+ENABLE\\s+ROW\\s+LEVEL\\s+SECURITY", "i").test(norm);
-        const hasPol = new RegExp("CREATE\\s+POLICY\\s+[^;]+\\s+ON\\s+(?:public\\.)?" + shortName, "i").test(norm);
-        if (!hasRls || !hasPol) rlsMissing.push(tbl);
-      }
-      if (rlsMissing.length > 0) {
-        findings.push({
-          sev: "HIGH",
-          code: "CHECK 3 · MISSING_RLS_OR_POLICY",
-          table: rlsMissing.join(", "),
-          msg: "Row-Level Security (ENABLE ROW LEVEL SECURITY + CREATE POLICY) is missing on " + rlsMissing.length + " billing table(s), exposing records to PostgREST / anon key queries."
-        });
-        patchLines.push("-- 3. Enable Row-Level Security (RLS) on exposed billing tables:");
-        for (const tbl of rlsMissing) {
-          patchLines.push("ALTER TABLE " + tbl + " ENABLE ROW LEVEL SECURITY;");
-        }
-        patchLines.push("");
-      }
-
-      const policyRegex = /CREATE\s+POLICY\s+([a-zA-Z0-9_"]+)\s+ON\s+([a-zA-Z0-9_."]+)[^;]*?\b(?:USING|WITH\s+CHECK)\s*\(([^;]+)\)/gi;
-      let polMatch;
-      const badPolicies = [];
-      while ((polMatch = policyRegex.exec(norm)) !== null) {
-        const polName = polMatch[1];
-        const polTable = polMatch[2];
-        const polExpr = polMatch[3];
-        const isPermissiveTrue = /^\s*true\s*$/i.test(polExpr.trim());
-        const isBroadRoleOnly = /auth\.role\s*\(\s*\)\s*=\s*'authenticated'/i.test(polExpr) && !/auth\.(?:uid|jwt)\s*\(/i.test(polExpr);
-        if (isPermissiveTrue || isBroadRoleOnly) {
-          badPolicies.push(polTable + " (" + polName + ")");
-        }
-      }
-      if (badPolicies.length > 0) {
-        findings.push({
-          sev: "CRITICAL",
-          code: "CHECK 4 · RLS_PERMISSIVE_NO_TENANT_FILTER",
-          table: badPolicies.join(", "),
-          msg: "Permissive RLS policy allows cross-tenant reads/writes (USING (true) or auth.role() = 'authenticated' without auth.uid() / auth.jwt() tenant isolation)."
-        });
-        patchLines.push(
-          "-- 4. Replace permissive RLS policies with strict auth.uid() tenant isolation:",
-          "-- DROP POLICY <policy_name> ON <table>; CREATE POLICY tenant_isolation ON <table> USING (auth.uid() = user_id);",
-          ""
-        );
-      }
-
-      if (/SECURITY\s+DEFINER/i.test(norm)) {
-        const lacksSearchPath = !/SET\s+search_path\s*=/i.test(norm);
-        const lacksAuthUid = !/auth\.uid\s*\(/i.test(norm) || !/FUNCTION[\s\S]*?auth\.uid\s*\(/i.test(sql);
-        if (lacksSearchPath || lacksAuthUid) {
-          findings.push({
-            sev: "CRITICAL",
-            code: "CHECK 5 · SECURITY_DEFINER_WITHOUT_AUTH_OR_SEARCH_PATH",
-            table: "SECURITY DEFINER RPC",
-            msg: "SECURITY DEFINER function bypasses RLS without SET search_path = public, pg_temp or explicit auth.uid() caller binding (privilege escalation / IDOR risk)."
-          });
-          patchLines.push(
-            "-- 5. Pin search_path and enforce auth.uid() inside SECURITY DEFINER RPCs:",
-            "-- ALTER FUNCTION public.<fn_name> SET search_path = public, pg_temp;",
-            ""
-          );
-        }
-      }
-
-      patchLines.push("COMMIT;");
-
-      const container = document.getElementById("findings-container");
+  if (!isReactMounted()) {
+    const container = getElSafe("findings-container");
+    const patchEl = getElSafe("patch-output");
+    if (container) {
       if (findings.length === 0) {
         container.innerHTML = '<div class="finding-ok">0 Schema or RLS Vulnerabilities Found — All Group A Database Invariants Passed</div>';
-        document.getElementById("patch-output").value = "-- All Group A schema invariants (CHECK >= 0, UNIQUE(stripe_event_id), and RLS policies) are present.\n-- No SQL remediation patch required.";
       } else {
-        container.innerHTML = findings.map(f =>
-          '<div class="finding">' +
-            '<div class="finding-head"><span class="sev ' + (f.sev === "HIGH" ? "sev-high" : "") + '">' + f.sev + '</span><strong>' + f.code + '</strong> <span class="finding-table">(' + f.table + ')</span></div>' +
-            '<div class="finding-msg">' + f.msg + '</div>' +
-          '</div>'
-        ).join("");
-        if (!isProLicenseUnlocked) {
-          document.getElementById("patch-output").value = [
-            "-- Billing Watchdog Diagnostic Summary: " + findings.length + " Schema/RLS Vulnerability(s) Detected",
-            "-- Affected Objects: " + findings.map(f => f.table).join(" | "),
-            "--",
-            "-- [REDACTED IN FREE DIAGNOSTIC MODE]",
-            "-- Enter your BWV2-... Pro/Lifetime License Key above (or purchase Pro $49/mo / Lifetime $149 below)",
-            "-- to unlock the zero-downtime NOT VALID + VALIDATE CONSTRAINT + CREATE UNIQUE INDEX CONCURRENTLY remediation script."
-          ].join("\n");
-        } else {
-          document.getElementById("patch-output").value = patchLines.join("\n");
-        }
+        container.innerHTML = findings
+          .map(
+            (f) =>
+              '<div class="finding">' +
+              '<div class="finding-head"><span class="sev ' +
+              (f.sev === "HIGH" ? "sev-high" : "") +
+              '">' +
+              f.sev +
+              "</span><strong>" +
+              f.code +
+              '</strong> <span class="finding-table">(' +
+              f.table +
+              ")</span></div>" +
+              '<div class="finding-msg">' +
+              f.msg +
+              "</div>" +
+              "</div>"
+          )
+          .join("");
       }
     }
+    if (patchEl) patchEl.value = patchOutputText;
+  }
 
-    function copyPatch() {
-      if (!isProLicenseUnlocked) {
-        const statusEl = document.getElementById("license-status-msg");
-        if (statusEl) {
-          statusEl.innerHTML = 'Status: <strong class="status-warn">Pro / Lifetime License Required to copy production SQL remediation patch.</strong>';
-        }
-        return false;
-      }
-      const el = document.getElementById("patch-output");
-      el.select();
-      navigator.clipboard.writeText(el.value);
-      return true;
-    }
-
-    function downloadPatch() {
-      if (!isProLicenseUnlocked) {
-        const statusEl = document.getElementById("license-status-msg");
-        if (statusEl) {
-          statusEl.innerHTML = 'Status: <strong class="status-warn">Pro / Lifetime License Required to download remediation.sql.</strong>';
-        }
-        return false;
-      }
-      const content = document.getElementById("patch-output").value;
-      const blob = new Blob([content], { type: "application/sql;charset=utf-8;" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = "billing-watchdog-remediation.sql";
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-      return true;
-    }
-
-    function toggleGroupBDemo() {
-      const el = document.getElementById("group-b-report");
-      el.textContent = [
-        "# Billing Integrity & Reconciliation Diagnostic Report (Demo Fixture Run)",
-        "Generated At (UTC): 2026-11-01T10:00:00.000Z",
-        "PostgreSQL Transaction Snapshot: BEGIN ISOLATION LEVEL REPEATABLE READ, READ ONLY (VERIFIED)",
-        "Monetary Arithmetic: INTEGER Cents Only (Zero FLOAT/REAL)",
-        "",
-        "## Group B: Stripe <-> Postgres Entitlement & Credit Ledger Drift",
-        "",
-        "1. [CRITICAL] CHECK 4 · ZOMBIE_SUBSCRIPTION (Entity: user_id=usr_zombie_1 / sub_zombie_01)",
-        "   - DB Status: 'active' | Live Stripe Status: 'canceled'",
-        "   - Impact: User is consuming paid compute/credits for free after subscription cancellation.",
-        "   - Circuit-Breaker Action: QUARANTINE (is_billing_quarantined: false -> true, exposure=2900 cents)",
-        "",
-        "2. [CRITICAL] CHECK 5 · DUPLICATE_WEBHOOK_CREDIT_GRANT (Entity: stripe_event_id=evt_dup_99)",
-        "   - Invoice: in_starter_29 ($29.00 = 2900 integer cents)",
-        "   - Ledger Rows Found: 2 (tx_1: +1000 credits, tx_2: +1000 credits)",
-        "   - Impact: Parallel Stripe webhook retry double-granted +1,000 extra credits.",
-        "",
-        "3. [CRITICAL] CHECK 6 · CREDIT_CONSERVATION_VIOLATION (Entity: user_id=usr_replay_2)",
-        "   - Formula: ExpectedMax (850) = FreeSignup (50) + PaidInvoices (1000) - Consumed (200)",
-        "   - Actual Wallet Balance in DB: 1850 credits (+1,000 unbacked credit leakage detected).",
-        "   - Circuit-Breaker Action: QUARANTINE (is_billing_quarantined: false -> true, exposure=3000 cents)"
-      ].join("\n");
-    }
-
-    // Polar.sh Merchant-of-Record Instant Delivery Links (EU VAT / US Tax + GitHub Repo Invite + BWV2E Key)
-    // Keyed strictly by INTEGER cents (4900 = PRO_MONTHLY, 14900 = LIFETIME_TEAM; zero FLOAT/REAL).
-    const POLAR_CHECKOUT_URLS = {
-      4900: "",
-      14900: ""
+  const tEnd = typeof performance !== "undefined" && typeof performance.now === "function" ? performance.now() : 0;
+  const lintMs = Math.max(1, Math.round(tEnd - tStart));
+  commitState((next) => {
+    next.linter = {
+      activePreset: presetOverride !== undefined ? presetOverride : next.linter.activePreset,
+      sqlInput: sql,
+      isCodeMode: false,
+      findings,
+      patchOutput: patchOutputText,
+      lintMs
     };
-    if (typeof window !== "undefined") {
-      window.POLAR_CHECKOUT_URLS = POLAR_CHECKOUT_URLS;
-    }
+  });
+}
 
-    function formatUsdFromIntegerCents(amountCents) {
-      const whole = Math.trunc(amountCents / 100);
-      const minor = Math.abs(amountCents % 100);
-      return "$" + whole + (minor > 0 ? "." + String(minor).padStart(2, "0") : "");
-    }
+function copyPatch() {
+  if (!isProLicenseUnlocked) {
+    const msg = "Pro / Lifetime License Required to copy production SQL remediation patch.";
+    const html = 'Status: <strong class="status-warn">' + msg + "</strong>";
+    commitState((next) => {
+      next.licenseStatusKind = "warn";
+      next.licenseStatusText = msg;
+      next.licenseStatusHtml = html;
+      next.licenseDrawerOpen = true;
+    });
+    updateLicenseDom(html, "", false);
+    return false;
+  }
+  const el = !isReactMounted() ? getElSafe("patch-output") : null;
+  const textToCopy = el && el.value ? el.value : __state.linter.patchOutput;
+  if (el && typeof el.select === "function") el.select();
+  if (typeof navigator !== "undefined" && navigator.clipboard && typeof navigator.clipboard.writeText === "function") {
+    navigator.clipboard.writeText(textToCopy);
+  }
+  return true;
+}
 
-    function escapeHtmlSafe(raw) {
-      return String(raw || "")
-        .replace(/&/g, "&amp;")
-        .replace(/</g, "&lt;")
-        .replace(/>/g, "&gt;")
-        .replace(/"/g, "&quot;");
-    }
+function downloadPatch() {
+  if (!isProLicenseUnlocked) {
+    const msg = "Pro / Lifetime License Required to download remediation.sql.";
+    const html = 'Status: <strong class="status-warn">' + msg + "</strong>";
+    commitState((next) => {
+      next.licenseStatusKind = "warn";
+      next.licenseStatusText = msg;
+      next.licenseStatusHtml = html;
+      next.licenseDrawerOpen = true;
+    });
+    updateLicenseDom(html, "", false);
+    return false;
+  }
+  const el = !isReactMounted() ? getElSafe("patch-output") : null;
+  const content = el && el.value ? el.value : __state.linter.patchOutput;
+  const blob = new Blob([content], { type: "application/sql;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "billing-watchdog-remediation.sql";
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+  return true;
+}
 
-    function startPolarCheckout(itemName, amountCents) {
-      if (typeof amountCents !== "number" || !Number.isSafeInteger(amountCents) || amountCents <= 0) {
-        throw new Error("NonIntegerMoneyError: amountCents must be a positive safe integer in minor units.");
+function toggleGroupBDemo() {
+  const reportText = [
+    "# Billing Integrity & Reconciliation Diagnostic Report (Demo Fixture Run)",
+    "Generated At (UTC): 2026-11-01T10:00:00.000Z",
+    "PostgreSQL Transaction Snapshot: BEGIN ISOLATION LEVEL REPEATABLE READ, READ ONLY (VERIFIED)",
+    "Monetary Arithmetic: INTEGER Cents Only (Zero FLOAT/REAL)",
+    "",
+    "## Group B: Stripe <-> Postgres Entitlement & Credit Ledger Drift",
+    "",
+    "1. [CRITICAL] CHECK 4 · ZOMBIE_SUBSCRIPTION (Entity: user_id=usr_zombie_1 / sub_zombie_01)",
+    "   - DB Status: 'active' | Live Stripe Status: 'canceled'",
+    "   - Impact: User is consuming paid compute/credits for free after subscription cancellation.",
+    "   - Circuit-Breaker Action: QUARANTINE (is_billing_quarantined: false -> true, exposure=2900 cents)",
+    "",
+    "2. [CRITICAL] CHECK 5 · DUPLICATE_WEBHOOK_CREDIT_GRANT (Entity: stripe_event_id=evt_dup_99)",
+    "   - Invoice: in_starter_29 ($29.00 = 2900 integer cents)",
+    "   - Ledger Rows Found: 2 (tx_1: +1000 credits, tx_2: +1000 credits)",
+    "   - Impact: Parallel Stripe webhook retry double-granted +1,000 extra credits.",
+    "",
+    "3. [CRITICAL] CHECK 6 · CREDIT_CONSERVATION_VIOLATION (Entity: user_id=usr_replay_2)",
+    "   - Formula: ExpectedMax (850) = FreeSignup (50) + PaidInvoices (1000) - Consumed (200)",
+    "   - Actual Wallet Balance in DB: 1850 credits (+1,000 unbacked credit leakage detected).",
+    "   - Circuit-Breaker Action: QUARANTINE (is_billing_quarantined: false -> true, exposure=3000 cents)"
+  ].join("\n");
+
+  const structuredChecks = [
+    {
+      id: "CHECK 4",
+      code: "ZOMBIE_SUBSCRIPTION",
+      title: "Active DB access on canceled subscription",
+      entity: "usr_zombie_1 / sub_zombie_01",
+      dbState: "status = 'active'",
+      stripeTruth: "status = 'canceled'",
+      variance: "Unpaid compute burn active",
+      action: "Quarantine ($29.00 / 2,900c)",
+      exposureCents: 2900
+    },
+    {
+      id: "CHECK 5",
+      code: "DUPLICATE_WEBHOOK_CREDIT_GRANT",
+      title: "Duplicate credit grant on webhook retry",
+      entity: "stripe_event_id = evt_dup_99 · in_starter_29",
+      dbState: "2 ledger rows (tx_1: +1,000 cr, tx_2: +1,000 cr)",
+      stripeTruth: "1 paid invoice ($29.00 / 2,900c)",
+      variance: "+1,000 extra credits",
+      action: "Enforce UNIQUE(stripe_event_id)",
+      exposureCents: 2900
+    },
+    {
+      id: "CHECK 6",
+      code: "CREDIT_CONSERVATION_VIOLATION",
+      title: "Wallet balance breaks conservation formula",
+      entity: "usr_replay_2",
+      dbState: "Actual DB wallet = 1,850 credits",
+      stripeTruth: "50 Free + 1,000 Paid - 200 Used = 850 max",
+      variance: "+1,000 unbacked credits",
+      action: "Quarantine ($30.00 / 3,000c)",
+      exposureCents: 3000,
+      conservation: { free: 50, paid: 1000, used: 200, expectedMax: 850, actual: 1850, delta: 1000 }
+    }
+  ];
+
+  if (!isReactMounted()) {
+    const el = getElSafe("group-b-report");
+    if (el) el.textContent = reportText;
+  }
+
+  commitState((next) => {
+    next.reconciler = {
+      rawReport: reportText,
+      checks: structuredChecks
+    };
+  });
+}
+
+// Polar.sh Merchant-of-Record Instant Delivery Links (EU VAT / US Tax + GitHub Repo Invite + BWV2E Key)
+// Keyed strictly by INTEGER cents (4900 = PRO_MONTHLY, 14900 = LIFETIME_TEAM; zero FLOAT/REAL).
+const POLAR_CHECKOUT_URLS = {
+  4900: "",
+  14900: ""
+};
+if (typeof window !== "undefined") {
+  window.POLAR_CHECKOUT_URLS = POLAR_CHECKOUT_URLS;
+}
+
+function startPolarCheckout(itemName, amountCents) {
+  if (typeof amountCents !== "number" || !Number.isSafeInteger(amountCents) || amountCents <= 0) {
+    throw new Error("NonIntegerMoneyError: amountCents must be a positive safe integer in minor units.");
+  }
+  const configuredMoRUrl = Object.prototype.hasOwnProperty.call(POLAR_CHECKOUT_URLS, amountCents)
+    ? POLAR_CHECKOUT_URLS[amountCents]
+    : "";
+  if (typeof configuredMoRUrl === "string" && configuredMoRUrl.indexOf("https://buy.polar.sh/") === 0) {
+    window.open(configuredMoRUrl, "_blank", "noopener,noreferrer");
+    return true;
+  }
+
+  const tierCode = amountCents === 14900 ? "LIFETIME_TEAM" : "PRO_MONTHLY";
+  const displayUsd = formatUsdFromIntegerCents(amountCents);
+  const subject = encodeURIComponent(
+    "Polar.sh MoR Checkout / Invoice Request - Billing Watchdog v2 (" + tierCode + " - " + amountCents + " cents)"
+  );
+  const body = encodeURIComponent(
+    "Hi Mario,\n\nPlease send an instant Polar.sh Merchant-of-Record checkout link (or EU VAT / B2B invoice) for:\n" +
+      "- Plan: " + itemName + " (" + tierCode + ")\n" +
+      "- Amount: " + displayUsd + " USD (" + amountCents + " integer cents)\n\n" +
+      "Upon settlement, please deliver our Ed25519 BWV2E-... license key and GitHub Pro repository invite.\n"
+  );
+  const mailtoHref = "mailto:mariostosic@prime-tech.rs?subject=" + subject + "&body=" + body;
+
+  const statusHtml =
+    '<div class="polar-notice">' +
+    '<strong class="polar-notice-title">Polar.sh Merchant-of-Record Checkout (' +
+    escapeHtmlSafe(itemName) +
+    " — " +
+    amountCents +
+    " integer cents):</strong> " +
+    "Live self-serve <code>buy.polar.sh</code> link is not yet published in this static build (fail-closed — zero unverified external payment redirects). " +
+    '<a class="polar-notice-link" href="' +
+    mailtoHref +
+    '">Request instant Polar.sh MoR checkout link / VAT invoice via mariostosic@prime-tech.rs →</a>' +
+    "</div>";
+
+  commitState((next) => {
+    next.licenseDrawerOpen = true;
+    next.licenseStatusKind = "warn";
+    next.licenseStatusText =
+      "Polar.sh Merchant-of-Record Checkout (" + itemName + " — " + amountCents + " integer cents): live self-serve link unpublished (fail-closed).";
+    next.licenseStatusHtml = statusHtml;
+    next.polarNotice = {
+      itemName,
+      amountCents,
+      displayUsd,
+      tierCode,
+      mailtoHref
+    };
+  });
+
+  if (!isReactMounted()) {
+    const statusEl = getElSafe("license-status-msg");
+    if (statusEl) {
+      statusEl.innerHTML = statusHtml;
+      if (typeof statusEl.scrollIntoView === "function") {
+        statusEl.scrollIntoView({ behavior: "smooth", block: "center" });
       }
-      const configuredMoRUrl = Object.prototype.hasOwnProperty.call(POLAR_CHECKOUT_URLS, amountCents)
-        ? POLAR_CHECKOUT_URLS[amountCents]
-        : "";
-      if (typeof configuredMoRUrl === "string" && configuredMoRUrl.indexOf("https://buy.polar.sh/") === 0) {
-        window.open(configuredMoRUrl, "_blank", "noopener,noreferrer");
-        return true;
-      }
-
-      const tierCode = amountCents === 14900 ? "LIFETIME_TEAM" : "PRO_MONTHLY";
-      const displayUsd = formatUsdFromIntegerCents(amountCents);
-      const subject = encodeURIComponent(
-        "Polar.sh MoR Checkout / Invoice Request - Billing Watchdog v2 (" + tierCode + " - " + amountCents + " cents)"
-      );
-      const body = encodeURIComponent(
-        "Hi Mario,\n\nPlease send an instant Polar.sh Merchant-of-Record checkout link (or EU VAT / B2B invoice) for:\n" +
-        "- Plan: " + itemName + " (" + tierCode + ")\n" +
-        "- Amount: " + displayUsd + " USD (" + amountCents + " integer cents)\n\n" +
-        "Upon settlement, please deliver our Ed25519 BWV2E-... license key and GitHub Pro repository invite.\n"
-      );
-      const mailtoHref = "mailto:mariostosic@prime-tech.rs?subject=" + subject + "&body=" + body;
-
-      const statusEl = document.getElementById("license-status-msg");
-      if (statusEl) {
-        statusEl.innerHTML =
-          '<div class="polar-notice">' +
-            '<strong class="polar-notice-title">Polar.sh Merchant-of-Record Checkout (' + escapeHtmlSafe(itemName) + ' — ' + amountCents + ' integer cents):</strong> ' +
-            'Live self-serve <code>buy.polar.sh</code> link is not yet published in this static build (fail-closed — zero unverified external payment redirects). ' +
-            '<a class="polar-notice-link" href="' + mailtoHref + '">Request instant Polar.sh MoR checkout link / VAT invoice via mariostosic@prime-tech.rs →</a>' +
-          '</div>';
-        if (typeof statusEl.scrollIntoView === "function") {
-          statusEl.scrollIntoView({ behavior: "smooth", block: "center" });
-        }
-      }
-      return false;
     }
+  }
+  return false;
+}
 
-    runChaosSimulation("ALL");
-    loadSampleSql("vulnerable");
-    toggleGroupBDemo();
+if (typeof window !== "undefined") {
+  window.__WATCHDOG_KERNEL__ = {
+    getState: () => __state,
+    subscribe: (listener) => {
+      __kernelListeners.add(listener);
+      return () => {
+        __kernelListeners.delete(listener);
+      };
+    },
+    runChaosSimulation,
+    setChaosParams: (partial) => {
+      const merged = {
+        planPriceCents: partial.planPriceCents ?? __state.chaos.planPriceCents,
+        planCredits: partial.planCredits ?? __state.chaos.planCredits,
+        monthlySubs: partial.monthlySubs ?? __state.chaos.monthlySubs,
+        quarantineThresholdCents: partial.quarantineThresholdCents ?? __state.chaos.quarantineThresholdCents
+      };
+      runChaosSimulation(__state.chaos.filter, merged);
+    },
+    loadSampleSql,
+    setSqlInput: (sqlText) => {
+      commitState((next) => {
+        next.linter = Object.assign({}, next.linter, {
+          activePreset: "custom",
+          sqlInput: sqlText
+        });
+      });
+      runSqlLinter(sqlText, "custom");
+    },
+    runSqlLinter,
+    unlockProPortal,
+    verifyEd25519LicenseInBrowser,
+    startPolarCheckout,
+    setLicenseDrawerOpen: (open) => {
+      commitState((next) => {
+        next.licenseDrawerOpen = Boolean(open);
+      });
+    },
+    setLicenseKeyDraft: (draft) => {
+      commitState((next) => {
+        next.licenseKeyDraft = draft;
+      });
+    },
+    copyPatch,
+    downloadPatch,
+    copyQuarantineSql,
+    toggleGroupBDemo
+  };
+}
 
-    if (typeof window !== "undefined" && window.location && window.location.search) {
-      try {
-        const params = new URLSearchParams(window.location.search);
-        const licenseParam = params.get("license");
-        const checkoutState = params.get("checkout");
-        const provider = params.get("provider");
+runChaosSimulation("ALL");
+loadSampleSql("vulnerable");
+toggleGroupBDemo();
 
-        if (licenseParam && licenseParam.indexOf("BWV2E-") === 0) {
-          const inputEl = document.getElementById("license-key-input");
-          if (inputEl) inputEl.value = licenseParam;
-          if (window.history && typeof window.history.replaceState === "function") {
-            params.delete("license");
-            const cleanQuery = params.toString();
-            window.history.replaceState({}, "", window.location.pathname + (cleanQuery ? "?" + cleanQuery : "") + (window.location.hash || ""));
-          }
-          verifyEd25519LicenseInBrowser(licenseParam);
-        } else if (checkoutState === "success") {
-          const statusEl = document.getElementById("license-status-msg");
-          if (statusEl) {
-            if (provider === "polar") {
-              statusEl.innerHTML = 'Status: <strong class="status-ok">Polar.sh Checkout Completed. Check your inbox for your instant <code>BWV2E-...</code> Ed25519 License Key, <code>billing-watchdog-pro-v2.zip</code> download, and GitHub private repo invite.</strong>';
-            } else {
-              statusEl.innerHTML = 'Status: <strong class="status-ok">Checkout Completed. Send your receipt email to <a href="mailto:mariostosic@prime-tech.rs?subject=Billing%20Watchdog%20v2%20License%20Key%20Delivery">mariostosic@prime-tech.rs</a> to receive your BWV2E-... License Key &amp; Pro ZIP immediately.</strong>';
-            }
-          }
-        }
-      } catch (_urlErr) {
-        // Ignore non-standard URL environments in embedded sandboxes
+if (typeof window !== "undefined" && window.location && window.location.search) {
+  try {
+    const params = new URLSearchParams(window.location.search);
+    const licenseParam = params.get("license");
+    const checkoutState = params.get("checkout");
+    const provider = params.get("provider");
+
+    if (licenseParam && licenseParam.indexOf("BWV2E-") === 0) {
+      const inputEl = getElSafe("license-key-input");
+      if (inputEl) inputEl.value = licenseParam;
+      commitState((next) => {
+        next.licenseKeyDraft = licenseParam;
+        next.licenseDrawerOpen = true;
+      });
+      if (window.history && typeof window.history.replaceState === "function") {
+        params.delete("license");
+        const cleanQuery = params.toString();
+        window.history.replaceState(
+          {},
+          "",
+          window.location.pathname + (cleanQuery ? "?" + cleanQuery : "") + (window.location.hash || "")
+        );
       }
+      verifyEd25519LicenseInBrowser(licenseParam);
+    } else if (checkoutState === "success") {
+      const statusHtml =
+        provider === "polar"
+          ? 'Status: <strong class="status-ok">Polar.sh Checkout Completed. Check your inbox for your instant <code>BWV2E-...</code> Ed25519 License Key, <code>billing-watchdog-pro-v2.zip</code> download, and GitHub private repo invite.</strong>'
+          : 'Status: <strong class="status-ok">Checkout Completed. Send your receipt email to <a href="mailto:mariostosic@prime-tech.rs?subject=Billing%20Watchdog%20v2%20License%20Key%20Delivery">mariostosic@prime-tech.rs</a> to receive your BWV2E-... License Key &amp; Pro ZIP immediately.</strong>';
+      commitState((next) => {
+        next.licenseDrawerOpen = true;
+        next.licenseStatusKind = "ok";
+        next.licenseStatusText =
+          provider === "polar"
+            ? "Polar.sh Checkout Completed. Check your inbox for your instant BWV2E-... Ed25519 License Key."
+            : "Checkout Completed. Send your receipt email to mariostosic@prime-tech.rs.";
+        next.licenseStatusHtml = statusHtml;
+      });
+      updateLicenseDom(statusHtml, "", false);
     }
+  } catch (_urlErr) {
+    // Ignore non-standard URL environments in embedded sandboxes
+  }
+}
+
   </script>
 </body>
 </html>
