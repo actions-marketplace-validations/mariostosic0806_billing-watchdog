@@ -32,6 +32,7 @@ jobs:
           sql-path: supabase/migrations
           code-dir: app
           sarif-file: prooftwin.sarif
+          agent-fix-file: prooftwin-agent-fix.md
       - if: always() && hashFiles('prooftwin.sarif') != ''
         uses: github/codeql-action/upload-sarif@v3
         with:
@@ -49,6 +50,7 @@ jobs:
 | Unverified Stripe Webhooks & Denial-of-Wallet LLM Streaming Routes (`onFinish` race) | ✅ Detects & blocks PR | ✅ Drop-in `executeGuardedAiStream` Two-Phase Hold (`src/state-machine.ts`) & `examples/nextjs-stripe-webhook-route.ts` |
 | MCP Tool Poisoning & Silent Description Rug-Pulls (`--mcp-manifest` / `--mcp-lock`) | ✅ Detects & blocks PR | ✅ Full canonical SHA-256 lockfile generator & Lethal Trifecta risk scorer |
 | OASIS SARIF 2.1.0 GitHub Code Scanning & PR Annotations (`sarif-file` / `--sarif-out`) | ✅ Exact file + 1-based line annotations | ✅ Full rule remediation metadata across `lint-sql`, `lint-code`, `verify-ci` & `scan` (`src/sarif.ts`) |
+| Fact-Forcing Agent Remediation Packet (`agent-fix-file` / `--agent-fix-out`) + MIT Agent Skill | ✅ Prompt-injection-safe diagnostic checklist (`skills/stripe-supabase-billing-guard/SKILL.md`) | ✅ Full remediation contracts + pre-edit fact checks for Claude Code / ECC / Cursor / Antigravity (`src/agent-fix.ts`) |
 | Live Nightly Stripe ↔ Postgres Drift (`ZOMBIE_SUBSCRIPTION`, `DUPLICATE_WEBHOOK_CREDIT_GRANT`, `CREDIT_CONSERVATION_VIOLATION`) | — | ✅ Single `BEGIN ISOLATION LEVEL REPEATABLE READ, READ ONLY` snapshot + `SLACK_WEBHOOK_URL` / `DISCORD_WEBHOOK_URL` alerts |
 | Active Runaway Credit Circuit-Breaker (`is_billing_quarantined = true`) & Asymmetric `Ed25519` Offline Key (`BWV2E-...`) | — | ✅ Deterministic Dry-Run Preview + Auto-Quarantine (`src/cli.ts`, `src/license.ts`, `src/polar-fulfillment.ts`) |
 

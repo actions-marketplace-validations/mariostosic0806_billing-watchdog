@@ -42,7 +42,7 @@ jobs:
             node -e '
               const fs = require("node:fs");
               const assert = require("node:assert/strict");
-              for (const page of ["docs/index.html", "docs/calculator/index.html", "docs/saferevert/index.html", "action.yml", "examples/bad-migration.sql", "examples/billing-watchdog.yml"]) {
+              for (const page of ["docs/index.html", "docs/calculator/index.html", "docs/saferevert/index.html", "action.yml", "examples/bad-migration.sql", "examples/billing-watchdog.yml", "skills/stripe-supabase-billing-guard/SKILL.md"]) {
                 assert.ok(fs.existsSync(page), "Missing public artifact: " + page);
               }
               const html = fs.readFileSync("docs/index.html", "utf8");
@@ -64,7 +64,7 @@ jobs:
               }
               console.log("Public Portal & Composite Action CI Gate PASSED on Node " + process.version);
             '
-            node scripts/public-ci-gate.mjs lint-sql --sql-file examples/bad-migration.sql --no-fail-on-critical --sarif-out /tmp/public-gate.sarif
+            node scripts/public-ci-gate.mjs lint-sql --sql-file examples/bad-migration.sql --no-fail-on-critical --sarif-out /tmp/public-gate.sarif --agent-fix-out /tmp/public-agent-fix.md
             node -e '
               const fs = require("node:fs");
               const assert = require("node:assert/strict");
@@ -77,6 +77,10 @@ jobs:
                 assert.equal(loc.artifactLocation.uri, "examples/bad-migration.sql");
                 assert.ok(loc.region.startLine > 1);
               }
-              console.log("Public SARIF 2.1.0 Smoke Gate PASSED (" + sarif.runs[0].results.length + " annotations)");
+              const agentFix = fs.readFileSync("/tmp/public-agent-fix.md", "utf8");
+              assert.match(agentFix, /UNTRUSTED DATA/);
+              assert.match(agentFix, /REDACTED IN FREE DIAGNOSTIC MODE/);
+              assert.match(agentFix, /examples\/bad-migration\.sql:35/);
+              console.log("Public SARIF 2.1.0 + Agent Fix Packet Smoke Gate PASSED (" + sarif.runs[0].results.length + " annotations)");
             '
           fi
