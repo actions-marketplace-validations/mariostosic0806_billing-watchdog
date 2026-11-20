@@ -1,17 +1,17 @@
-# Billing Watchdog v2 & ProofTwin CI Gate (`Stripe ↔ Postgres/Supabase`)
+# Billing Watchdog v2.4 & ProofTwin CI Gate (`Stripe ↔ Postgres/Supabase`)
 
 [![CI](https://github.com/mariostosic0806/billing-watchdog/actions/workflows/ci.yml/badge.svg)](https://github.com/mariostosic0806/billing-watchdog/actions/workflows/ci.yml)
 
-Deterministic Stripe ↔ PostgreSQL/Supabase billing integrity reconciler, zero-credential `ProofTwin` pull-request security gate, and self-hosted AI credit circuit-breaker.
+Deterministic Stripe ↔ PostgreSQL/Supabase billing integrity reconciler, zero-credential `ProofTwin` pull-request security gate (SQL, Drizzle ORM, Prisma, Next.js, Python FastAPI, Autumn, Stripe Billing Meters, and `.mcp.json` lockfiles), and self-hosted AI credit circuit-breaker.
 
-- **Interactive Browser Simulator & Offline `.sql` / RLS Linter:** [https://mariostosic0806.github.io/billing-watchdog/](https://mariostosic0806.github.io/billing-watchdog/)
+- **Interactive Browser Simulator & Offline `.sql` / ORM / RLS Linter:** [https://mariostosic0806.github.io/billing-watchdog/](https://mariostosic0806.github.io/billing-watchdog/)
 - **Standalone MIT Agent Skill (`Claude Code`, `ECC`, `Cursor`, `Codex`, `Antigravity`):** [`skills/stripe-supabase-billing-guard/SKILL.md`](skills/stripe-supabase-billing-guard/SKILL.md)
 
 ---
 
 ## 10-Second GitHub Action Quickstart (Zero Credentials Required)
 
-Add `ProofTwin` (`command: verify-ci`) to `.github/workflows/billing-watchdog.yml` (see full template in `examples/billing-watchdog.yml`) to block vulnerable SQL migrations, broken multi-tenant Supabase RLS (`USING (true)`), unverified Stripe webhook `req.json()` routes, unreserved streaming LLM credit deductions (`onFinish` race conditions), and silent MCP tool description rug-pulls on every Pull Request:
+Add `ProofTwin` (`command: verify-ci`) to `.github/workflows/billing-watchdog.yml` (see full template in `examples/billing-watchdog.yml`) to block vulnerable SQL migrations, Drizzle `pgTable` / Prisma `schema.prisma` constraint omissions, broken multi-tenant `org_id` Supabase RLS (`USING (true)` / uncorrelated `org_members`), unverified Stripe webhook `req.json()` / `request.json()` routes, unreserved streaming LLM credit deductions (`onFinish` race conditions), unidempotent `meterEvents.create` calls, and unpinned `.mcp.json` tool rug-pulls on every Pull Request:
 
 ```yaml
 name: ProofTwin Billing & RLS PR Gate
@@ -26,7 +26,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      - uses: mariostosic0806/billing-watchdog@v2.3.0
+      - uses: mariostosic0806/billing-watchdog@v2.4.0
         with:
           command: verify-ci
           sql-path: supabase/migrations
@@ -43,15 +43,15 @@ jobs:
 
 ## What It Catches
 
-| Check / Guard | Free Diagnostic Action (`@v2.3.0`) | Self-Hosted Pro v2 (`$49/mo` or `$149` Lifetime) |
+| Check / Guard | Free Diagnostic Action (`@v2.4.0`) | Self-Hosted Pro v2 (`$49/mo`, `$149` Lifetime, or `$299` Agency) |
 | :--- | :---: | :---: |
-| Missing `CHECK (credits_balance >= 0)` & `UNIQUE (stripe_event_id)` (`examples/bad-migration.sql`) | ✅ Detects & blocks PR | ✅ Generates non-blocking `NOT VALID` + `VALIDATE CONSTRAINT` SQL patch |
-| Permissive Multi-Tenant RLS (`USING (true)`) & `SECURITY DEFINER` RPC escalation | ✅ Detects & blocks PR | ✅ Live `READ ONLY` Cross-JWT RLS Isolation Prober (`src/prooftwin-ci-gate.ts`) |
-| Unverified Stripe Webhooks & Denial-of-Wallet LLM Streaming Routes (`onFinish` race) | ✅ Detects & blocks PR | ✅ Drop-in `executeGuardedAiStream` Two-Phase Hold (`src/state-machine.ts`) & `examples/nextjs-stripe-webhook-route.ts` |
-| MCP Tool Poisoning & Silent Description Rug-Pulls (`--mcp-manifest` / `--mcp-lock`) | ✅ Detects & blocks PR | ✅ Full canonical SHA-256 lockfile generator & Lethal Trifecta risk scorer |
+| Missing `CHECK (credits_balance >= 0)` & `UNIQUE (stripe_event_id)` across SQL, Drizzle `pgTable`, & Prisma (`examples/bad-migration.sql`) | ✅ Detects & blocks PR | ✅ Generates non-blocking `NOT VALID` + `VALIDATE CONSTRAINT` & `CONCURRENTLY` SQL patches |
+| Multi-Tenant `org_id` / `user_id` RLS & `SECURITY DEFINER` RPC escalation (`target_org_id`, uncorrelated `org_members`) | ✅ Detects & blocks PR | ✅ Live `READ ONLY` Cross-JWT Shadow DB RLS Isolation Prober (`--probe-rls-url` in `src/prooftwin-ci-gate.ts`) |
+| Unverified Stripe Webhooks, Python FastAPI `.py`, Autumn, Stripe Meters & Streaming LLM Routes (`onFinish` race) | ✅ Detects & blocks PR | ✅ Serverless Postgres PL/pgSQL Two-Phase Hold (`src/webhook-firewall.ts`, `src/state-machine.ts`) & `examples/nextjs-stripe-webhook-route.ts` |
+| Fail-Closed `.mcp.json` (`mcpServers`), Unpinned `ADDED` Tools, `SCHEMA_MUTATION` & `mcp-pin` CLI (`--mcp-manifest` / `--mcp-lock`) | ✅ Detects & pins SHA-256 lockfiles | ✅ Full canonical SHA-256 lockfile diffing & Lethal Trifecta risk scorer (`src/prooftwin-ci-gate.ts`) |
 | OASIS SARIF 2.1.0 GitHub Code Scanning & PR Annotations (`sarif-file` / `--sarif-out`) | ✅ Exact file + 1-based line annotations | ✅ Full rule remediation metadata across `lint-sql`, `lint-code`, `verify-ci` & `scan` (`src/sarif.ts`) |
-| Fact-Forcing Agent Remediation Packet (`agent-fix-file` / `--agent-fix-out`) + MIT Agent Skill | ✅ Prompt-injection-safe diagnostic checklist (`skills/stripe-supabase-billing-guard/SKILL.md`) | ✅ Full remediation contracts + pre-edit fact checks for Claude Code / ECC / Cursor / Antigravity (`src/agent-fix.ts`) |
-| Live Nightly Stripe ↔ Postgres Drift (`ZOMBIE_SUBSCRIPTION`, `DUPLICATE_WEBHOOK_CREDIT_GRANT`, `CREDIT_CONSERVATION_VIOLATION`) | — | ✅ Single `BEGIN ISOLATION LEVEL REPEATABLE READ, READ ONLY` snapshot + `SLACK_WEBHOOK_URL` / `DISCORD_WEBHOOK_URL` alerts |
+| Fact-Forcing Agent Remediation Packet (`agent-fix-file` / `--agent-fix-out`) + MIT Agent Skill | ✅ Prompt-injection-safe diagnostic checklist (`skills/stripe-supabase-billing-guard/SKILL.md`) | ✅ Schema/table-interpolated remediation contracts + runnable re-verify commands (`src/agent-fix.ts`) |
+| Bi-Directional Stripe ↔ Postgres Drift (`ZOMBIE_SUBSCRIPTION`, `DROPPED_WEBHOOK_MISSING_CREDIT_GRANT`, `CREDIT_CONSERVATION_VIOLATION`) | — | ✅ Single `BEGIN ISOLATION LEVEL REPEATABLE READ, READ ONLY` snapshot + `--redact-entities` `SLACK_WEBHOOK_URL` / `DISCORD_WEBHOOK_URL` alerts |
 | Active Runaway Credit Circuit-Breaker (`is_billing_quarantined = true`) & Asymmetric `Ed25519` Offline Key (`BWV2E-...`) | — | ✅ Deterministic Dry-Run Preview + Auto-Quarantine (`src/cli.ts`, `src/license.ts`, `src/polar-fulfillment.ts`) |
 
 ---
@@ -73,4 +73,4 @@ Every live Pro run opens a single `BEGIN ISOLATION LEVEL REPEATABLE READ, READ O
 
 ## Contact & Licensing
 
-Unlock executable SQL remediation patches and the complete Self-Hosted Pro v2 TypeScript engine (`113` automated state-machine, idempotency, SARIF, and fault-injection tests) at [mariostosic0806.github.io/billing-watchdog](https://mariostosic0806.github.io/billing-watchdog/) or contact [mariostosic@prime-tech.rs](mailto:mariostosic@prime-tech.rs).
+Unlock executable SQL remediation patches, Agency Client-Handover rights (`BWV2E-AGENCY_TEAM`), and the complete Self-Hosted Pro v2.4 TypeScript engine at [mariostosic0806.github.io/billing-watchdog](https://mariostosic0806.github.io/billing-watchdog/) or contact [mariostosic@prime-tech.rs](mailto:mariostosic@prime-tech.rs).

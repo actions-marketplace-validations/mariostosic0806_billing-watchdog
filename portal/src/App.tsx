@@ -146,7 +146,7 @@ export default function App() {
                 Billing Watchdog
               </span>
               <span className="rounded-[2px] border border-[#DDD8CE] bg-[#F4F2EC] px-1.5 py-0.5 font-mono text-[10.5px] text-[#5C5850] shrink-0">
-                v2.3.0
+                v2.4.0
               </span>
             </div>
 
@@ -233,8 +233,8 @@ export default function App() {
                 <div className="mt-0.5 font-mono font-medium text-[#141413]">SARIF 2.1.0 + Fix MD</div>
               </div>
               <div className="p-3.5">
-                <div className="text-[#68645B] text-[11px]">Deterministic test suite</div>
-                <div className="mt-0.5 font-mono font-medium text-[#095E49] tabular-nums">113 / 113 passing</div>
+                <div className="text-[#68645B] text-[11px]">Self-hosted fonts &amp; UI</div>
+                <div className="mt-0.5 font-mono font-medium text-[#095E49] tabular-nums">0 external requests</div>
               </div>
             </div>
           </div>

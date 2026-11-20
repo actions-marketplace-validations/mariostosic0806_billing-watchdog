@@ -39,7 +39,7 @@ export function LicenseSheet({ state }: LicenseSheetProps) {
           </SheetDescription>
         </SheetHeader>
 
-        <div className="flex-1 space-y-5 p-6">
+        <div className="flex-1 space-y-5 p-6 overflow-y-auto sheet-scroll">
           {/* Status Indicator (Unified with Polar.sh Fail-Closed Guidance when triggered) */}
           <div
             id="license-status-msg"
@@ -83,7 +83,7 @@ export function LicenseSheet({ state }: LicenseSheetProps) {
                   <>
                     <div className="font-semibold">
                       {isProLicenseUnlocked
-                        ? "Pro / Lifetime License Verified"
+                        ? "Commercial License Verified"
                         : licenseStatusKind === "ok"
                           ? "Polar.sh Checkout Completed"
                           : "Free Diagnostic Mode Active"}
@@ -111,7 +111,7 @@ export function LicenseSheet({ state }: LicenseSheetProps) {
                 id="license-key-input"
                 value={licenseKeyDraft}
                 onChange={(e) => kernel.setLicenseKeyDraft(e.target.value)}
-                placeholder="BWV2E-LIFETIME_TEAM-WATCHDOG_V2-..."
+                placeholder="BWV2E-LIFETIME_TEAM-... or BWV2E-AGENCY_TEAM-..."
                 className="font-mono break-all"
               />
             </div>
@@ -121,7 +121,7 @@ export function LicenseSheet({ state }: LicenseSheetProps) {
             </Button>
           </form>
 
-          {/* Direct Purchase Actions (Integer Cents Only: 4900 & 14900) */}
+          {/* Direct Purchase Actions (Integer Cents Only: 4900, 14900, 29900) */}
           <div className="border-t border-[#DDD8CE] pt-5 space-y-3">
             <div className="flex items-center justify-between">
               <span className="text-[12.5px] font-semibold text-[#141413]">Need a Commercial License?</span>
@@ -136,24 +136,42 @@ export function LicenseSheet({ state }: LicenseSheetProps) {
                 </div>
                 <Button
                   size="sm"
+                  variant="outline"
+                  className="border-[#141413] shrink-0"
                   onClick={() => kernel.startPolarCheckout("Pro Monthly Watchdog v2 ($49/mo)", 4900)}
                 >
                   Buy $49/mo
                 </Button>
               </div>
 
-              <div className="flex items-center justify-between gap-3 rounded-[3px] border border-[#DDD8CE] bg-[#F4F2EC]/65 p-3">
+              <div className="flex items-center justify-between gap-3 rounded-[3px] border border-[#141413] bg-[#F4F2EC] p-3">
                 <div>
                   <div className="text-[13px] font-semibold text-[#141413]">Lifetime Team License v2</div>
-                  <div className="font-mono text-[11px] text-[#68645B] tabular-nums">$149 one-time (14,900c)</div>
+                  <div className="font-mono text-[11px] text-[#47453F] tabular-nums">$149 one-time (14,900c)</div>
+                </div>
+                <Button
+                  size="sm"
+                  className="shrink-0"
+                  onClick={() => kernel.startPolarCheckout("Lifetime Team License v2 ($149 One-Time)", 14900)}
+                >
+                  Buy $149
+                </Button>
+              </div>
+
+              <div className="flex items-center justify-between gap-3 rounded-[3px] border border-[#DDD8CE] bg-[#F4F2EC]/65 p-3">
+                <div>
+                  <div className="text-[13px] font-semibold text-[#141413]">Agency &amp; Client-Handover v2</div>
+                  <div className="font-mono text-[11px] text-[#68645B] tabular-nums">
+                    $299 one-time (29,900c) · Unlimited client repos
+                  </div>
                 </div>
                 <Button
                   size="sm"
                   variant="outline"
-                  className="border-[#141413]"
-                  onClick={() => kernel.startPolarCheckout("Lifetime Team License v2 ($149 One-Time)", 14900)}
+                  className="border-[#141413] shrink-0"
+                  onClick={() => kernel.startPolarCheckout("Agency & Client-Handover License v2 ($299 One-Time)", 29900)}
                 >
-                  Buy $149
+                  Buy $299
                 </Button>
               </div>
             </div>
@@ -161,7 +179,7 @@ export function LicenseSheet({ state }: LicenseSheetProps) {
             <p className="text-[11.5px] text-[#68645B] leading-relaxed">
               30-day refund guarantee via Polar Software, Inc. See{" "}
               <a href="terms.html" className="text-[#1E4E79] hover:underline">
-                Terms
+                Terms (§3.2 Agency)
               </a>
               ,{" "}
               <a href="privacy.html" className="text-[#1E4E79] hover:underline">

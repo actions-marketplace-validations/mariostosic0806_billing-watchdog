@@ -27,7 +27,7 @@ function injectWatchdogKernel(): Plugin {
       if (!html.includes(placeholder)) {
         throw new Error("portal/index.html is missing <!-- __WATCHDOG_KERNEL__ --> marker.");
       }
-      return html.replace(placeholder, `<script>\n${kernel}\n  </script>`);
+      return html.replace(placeholder, () => `<script>\n${kernel}\n  </script>`);
     },
   };
 }

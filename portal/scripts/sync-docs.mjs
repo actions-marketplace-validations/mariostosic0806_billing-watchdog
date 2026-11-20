@@ -49,7 +49,7 @@ if (fs.existsSync(targetAssetsDir)) {
 fs.cpSync(distAssetsDir, targetAssetsDir, { recursive: true });
 fs.writeFileSync(path.join(docsDir, ".nojekyll"), "", "utf8");
 
-// 3. Enforce exact CI, Polar AUP, Zero-Plaintext-Secret, and VM Contract gates on built docs/
+// 3. Enforce exact CI, Polar AUP, EU GDPR Self-Hosted Fonts, Zero-Plaintext-Secret, and VM Contract gates on built docs/
 const builtHtml = fs.readFileSync(path.join(docsDir, "index.html"), "utf8");
 
 // Exactly 1 bare <script>...</script> tag (first match for Node VM suites)
@@ -60,12 +60,14 @@ assert.equal(bareScripts.length, 1, `Expected exactly 1 bare <script> block, fou
 const requiredPatterns = [
   /PRIME_TECH_ED25519_PUBLIC_KEY_SPKI_B64/,
   /verifyEd25519LicenseInBrowser/,
+  /AGENCY_TEAM/,
   /REDACTED IN FREE DIAGNOSTIC MODE/,
   /RLS_PERMISSIVE_NO_TENANT_FILTER/,
   /function\s+startPolarCheckout\s*\(\s*itemName\s*,\s*amountCents\s*\)/,
   /startPolarCheckout\(\s*'Pro Monthly Watchdog v2 \(\$49\/mo\)'\s*,\s*4900\s*\)/,
   /startPolarCheckout\(\s*'Lifetime Team License v2 \(\$149 One-Time\)'\s*,\s*14900\s*\)/,
-  /const\s+POLAR_CHECKOUT_URLS\s*=\s*\{\s*4900\s*:\s*"[^"]*"\s*,\s*14900\s*:\s*"[^"]*"\s*\}/,
+  /startPolarCheckout\(\s*'Agency &(?:amp;)? Client-Handover License v2 \(\$299 One-Time\)'\s*,\s*29900\s*\)/,
+  /const\s+POLAR_CHECKOUT_URLS\s*=\s*\{\s*4900\s*:\s*"[^"]*"\s*,\s*14900\s*:\s*"[^"]*"\s*,\s*29900\s*:\s*"[^"]*"\s*\}/,
   /Mario Stosic/i,
   /Individual Software Developer/i,
   /terms\.html/,
@@ -78,21 +80,30 @@ for (const re of requiredPatterns) {
   assert.match(builtHtml, re, `Built docs/index.html missing required pattern: ${re}`);
 }
 
-// Check forbidden secrets, AUP strings, float prices, and legacy payment tokens across index.html AND assets
+// Verify bundled .woff2 self-hosted font files exist in docs/assets/
+const woff2Files = collectFiles(targetAssetsDir, [".woff2"]);
+assert.ok(woff2Files.length >= 6, `Expected self-hosted .woff2 font files in docs/assets/, found ${woff2Files.length}`);
+
+// Check forbidden secrets, AUP strings, Google Fonts CDN leaks, float prices, and legacy payment tokens across ALL docs HTML + assets
 const assetFiles = collectFiles(targetAssetsDir, [".js", ".css"]);
-const builtFilesToAudit = [path.join(docsDir, "index.html"), ...assetFiles];
+const siblingPages = ["docs/terms.html", "docs/privacy.html", "docs/refund-policy.html"].map((rel) =>
+  path.join(repoRoot, rel)
+);
+const builtFilesToAudit = [path.join(docsDir, "index.html"), ...siblingPages, ...assetFiles];
 const forbiddenTokens = [
   ["pay", "pal.com"].join(""),
   ["_x", "click"].join(""),
   ["startPay", "PalCheckout"].join(""),
   ["mario.stosic", "357@gmail.com"].join(""),
+  ["fonts.google", "apis.com"].join(""),
+  ["fonts.g", "static.com"].join(""),
 ];
 
 for (const file of builtFilesToAudit) {
   const txt = fs.readFileSync(file, "utf8");
   const lower = txt.toLowerCase();
   for (const tok of forbiddenTokens) {
-    assert.equal(lower.includes(tok.toLowerCase()), false, `Forbidden legacy token ${tok} in ${file}`);
+    assert.equal(lower.includes(tok.toLowerCase()), false, `Forbidden external/legacy token ${tok} in ${file}`);
   }
   assert.doesNotMatch(txt, /PRIVATE KEY|WATCHDOG_ED25519_PRIVATE_KEY/, `Private key marker in ${file}`);
   assert.doesNotMatch(
@@ -108,6 +119,7 @@ for (const file of builtFilesToAudit) {
 
 assert.doesNotMatch(builtHtml, /["']49\.00["']/);
 assert.doesNotMatch(builtHtml, /["']149\.00["']/);
+assert.doesNotMatch(builtHtml, /["']299\.00["']/);
 
 for (const sibling of [
   "docs/terms.html",
@@ -126,5 +138,5 @@ for (const removedDir of ["docs/calculator", ["docs/safe", "revert"].join("")]) 
 }
 
 console.log(
-  `[sync-docs] OK -> synced docs/index.html + ${assetFiles.length} asset file(s) + .nojekyll; all static gates passed.`
+  `[sync-docs] OK -> synced docs/index.html + ${assetFiles.length} JS/CSS file(s) + ${woff2Files.length} self-hosted .woff2 font(s) + .nojekyll; all static & EU GDPR gates passed.`
 );

@@ -11,6 +11,15 @@ export type EdgeFilterKey =
   | "ARITH"
   | "STREAM";
 
+export type SampleSqlPresetMode =
+  | "vulnerable"
+  | "rls_idor"
+  | "nextjs"
+  | "orm"
+  | "drizzle"
+  | "prisma"
+  | "hardened";
+
 export interface ChaosRow {
   key: Exclude<EdgeFilterKey, "ALL">;
   edgeNum: string;
@@ -74,6 +83,31 @@ export interface ReconcilerCheck {
   };
 }
 
+export interface SubscriptionDiffRow {
+  classification: "ZOMBIE_SUBSCRIPTION" | "MISSING_IN_STRIPE" | "PAST_DUE_GRACE";
+  subId: string;
+  ownerId: string;
+  dbStatus: string;
+  stripeStatus: string;
+  monthlyBleedCents: number;
+  currency: string;
+}
+
+export interface SubscriptionDiffResult {
+  stripeInput: string;
+  dbInput: string;
+  stripeRowsCount: number;
+  dbRowsCount: number;
+  rows: SubscriptionDiffRow[];
+  zombieCount: number;
+  missingInStripeCount: number;
+  pastDueGraceCount: number;
+  totalMonthlyBleedCents: number;
+  dryRunSelectSql: string;
+  remediationSql: string;
+  parseError: string | null;
+}
+
 export interface PolarNotice {
   itemName: string;
   amountCents: number;
@@ -112,13 +146,17 @@ export interface WatchdogKernelState {
     activePreset: string;
     sqlInput: string;
     isCodeMode: boolean;
+    sourceKind?: "sql" | "ts" | "drizzle" | "prisma";
     findings: LinterFinding[];
     patchOutput: string;
+    patchStep1Transactional: string;
+    patchStep2Concurrent: string;
     lintMs: number;
   };
   reconciler: {
     rawReport: string;
     checks: ReconcilerCheck[];
+    diff: SubscriptionDiffResult;
   };
 }
 
@@ -132,7 +170,7 @@ export interface WatchdogKernelApi {
     monthlySubs?: number;
     quarantineThresholdCents?: number;
   }) => void;
-  loadSampleSql: (mode: "vulnerable" | "rls_idor" | "nextjs" | "hardened") => void;
+  loadSampleSql: (mode: SampleSqlPresetMode) => void;
   setSqlInput: (sqlText: string) => void;
   runSqlLinter: (codeOverride?: string) => void;
   unlockProPortal: (explicitKey?: string) => boolean;
@@ -140,10 +178,13 @@ export interface WatchdogKernelApi {
   startPolarCheckout: (itemName: string, amountCents: number) => boolean;
   setLicenseDrawerOpen: (open: boolean) => void;
   setLicenseKeyDraft: (draft: string) => void;
-  copyPatch: () => boolean;
+  copyPatch: (stepFilter?: 1 | 2) => boolean;
   downloadPatch: () => boolean;
   copyQuarantineSql: () => boolean;
   toggleGroupBDemo: () => void;
+  runSubscriptionDiffReconciler: (stripeRaw?: string, dbRaw?: string) => SubscriptionDiffResult;
+  loadSampleZombieDiff: () => SubscriptionDiffResult;
+  copyDiffSql: () => boolean;
 }
 
 declare global {
@@ -167,8 +208,10 @@ export function useKernelState(): WatchdogKernelState {
 }
 
 export function formatUsdCents(cents: number): string {
-  return "$" + (cents / 100).toLocaleString("en-US", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  });
+  const safe = Number.isSafeInteger(cents) ? cents : Math.trunc(Number(cents) || 0);
+  const sign = safe < 0 ? "-" : "";
+  const abs = Math.abs(safe);
+  const whole = Math.trunc(abs / 100);
+  const minor = abs % 100;
+  return sign + "$" + whole.toLocaleString("en-US") + "." + String(minor).padStart(2, "0");
 }

@@ -1,5 +1,5 @@
 name: "Stripe <-> Supabase Billing Integrity Watchdog"
-description: "Read-only diagnostic & reconciliation watchdog for Stripe subscriptions, webhooks, and Postgres/Supabase credit ledgers."
+description: "Read-only diagnostic & reconciliation watchdog for Stripe subscriptions, webhooks, Drizzle/Prisma/Python/TS routes, MCP lockfiles, and Postgres/Supabase RLS."
 author: "Billing Integrity Watchdog"
 branding:
   icon: "shield"
@@ -9,9 +9,9 @@ branding:
 # against the checked-out workspace of the calling repository.
 inputs:
   command:
-    description: "Watchdog sub-command: 'scan' | 'alert' | 'lint-sql' | 'lint-code' | 'chaos' | 'verify-ci' | 'init'"
+    description: "Watchdog sub-command: 'scan' | 'alert' | 'lint-sql' | 'lint-code' | 'chaos' | 'verify-ci' | 'mcp-pin' | 'init'"
     required: false
-    default: "scan"
+    default: "verify-ci"
   config-path:
     description: "Path to reconcile.config.json in the checked-out repository"
     required: false
@@ -21,15 +21,35 @@ inputs:
     required: false
     default: ""
   code-dir:
-    description: "lint-code / verify-ci: TypeScript/Next.js/Prisma directory or file to scan"
+    description: "lint-code / verify-ci: TypeScript/Next.js/Drizzle/Prisma/Python directory or file to scan"
     required: false
     default: ""
   mcp-manifest:
-    description: "verify-ci: path to current MCP tools manifest JSON"
+    description: "verify-ci / mcp-pin: path to current MCP tools manifest or .mcp.json"
     required: false
     default: ""
   mcp-lock:
-    description: "verify-ci: path to pinned MCP tool lockfile JSON for Dry-Run diff"
+    description: "verify-ci / mcp-pin: path to pinned MCP tool lockfile JSON"
+    required: false
+    default: ""
+  probe-rls-url:
+    description: "Optional Self-Hosted Pro v2 verify-ci: ephemeral shadow Postgres URL (e.g. supabase start) for Read-Only Cross-JWT RLS BOLA probing"
+    required: false
+    default: ""
+  probe-table:
+    description: "Optional Self-Hosted Pro v2 verify-ci: table to probe under Cross-JWT RLS (default: public.wallets)"
+    required: false
+    default: ""
+  owner-col:
+    description: "Optional Self-Hosted Pro v2 verify-ci: tenant/user ownership column for Cross-JWT probe (default: user_id)"
+    required: false
+    default: ""
+  jwt-a-sub:
+    description: "Optional Self-Hosted Pro v2 verify-ci: simulated Tenant A UUID for Cross-JWT RLS probe"
+    required: false
+    default: ""
+  jwt-b-sub:
+    description: "Optional Self-Hosted Pro v2 verify-ci: simulated Tenant B UUID for Cross-JWT RLS probe"
     required: false
     default: ""
   sarif-file:
@@ -89,6 +109,11 @@ runs:
         WD_CODE_DIR: ${{ inputs.code-dir }}
         WD_MCP_MANIFEST: ${{ inputs.mcp-manifest }}
         WD_MCP_LOCK: ${{ inputs.mcp-lock }}
+        WD_PROBE_RLS_URL: ${{ inputs.probe-rls-url }}
+        WD_PROBE_TABLE: ${{ inputs.probe-table }}
+        WD_OWNER_COL: ${{ inputs.owner-col }}
+        WD_JWT_A_SUB: ${{ inputs.jwt-a-sub }}
+        WD_JWT_B_SUB: ${{ inputs.jwt-b-sub }}
         WD_SARIF_FILE: ${{ inputs.sarif-file }}
         WD_AGENT_FIX_FILE: ${{ inputs.agent-fix-file }}
         WD_FAIL_ON_CRITICAL: ${{ inputs.fail-on-critical }}
@@ -99,8 +124,8 @@ runs:
       run: |
         set -euo pipefail
         case "$WD_COMMAND" in
-          scan|alert|lint-sql|lint-code|chaos|verify-ci|init) ;;
-          *) echo "::error::Unsupported command input (expected scan, alert, lint-sql, lint-code, chaos, verify-ci or init)."; exit 2 ;;
+          scan|alert|lint-sql|lint-code|chaos|verify-ci|mcp-pin|init) ;;
+          *) echo "::error::Unsupported command input (expected scan, alert, lint-sql, lint-code, chaos, verify-ci, mcp-pin or init)."; exit 2 ;;
         esac
         args=("$WD_COMMAND" --config "$WD_CONFIG")
         case "$WD_FAIL_ON_CRITICAL" in
@@ -125,6 +150,13 @@ runs:
           fi
           args+=("$WD_CODE_DIR")
         fi
+        if [ "$WD_COMMAND" = "mcp-pin" ]; then
+          if [ -z "$WD_MCP_MANIFEST" ] || [ -z "$WD_MCP_LOCK" ]; then
+            echo "::error::mcp-pin needs both mcp-manifest and mcp-lock inputs."
+            exit 2
+          fi
+          args+=(--mcp-manifest "$WD_MCP_MANIFEST" --mcp-lock "$WD_MCP_LOCK")
+        fi
         if [ "$WD_COMMAND" = "verify-ci" ]; then
           args+=(--dry-run)
           if [ -n "$WD_SQL_PATH" ]; then
@@ -138,6 +170,21 @@ runs:
           fi
           if [ -n "$WD_MCP_LOCK" ]; then
             args+=(--mcp-lock "$WD_MCP_LOCK")
+          fi
+          if [ -n "$WD_PROBE_RLS_URL" ]; then
+            args+=(--probe-rls-url "$WD_PROBE_RLS_URL")
+          fi
+          if [ -n "$WD_PROBE_TABLE" ]; then
+            args+=(--probe-table "$WD_PROBE_TABLE")
+          fi
+          if [ -n "$WD_OWNER_COL" ]; then
+            args+=(--owner-col "$WD_OWNER_COL")
+          fi
+          if [ -n "$WD_JWT_A_SUB" ]; then
+            args+=(--jwt-a-sub "$WD_JWT_A_SUB")
+          fi
+          if [ -n "$WD_JWT_B_SUB" ]; then
+            args+=(--jwt-b-sub "$WD_JWT_B_SUB")
           fi
         fi
         if [ -n "$WD_SARIF_FILE" ]; then

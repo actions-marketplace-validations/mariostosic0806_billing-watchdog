@@ -1,53 +1,49 @@
 # ==============================================================================
-# Drop-in GitHub Actions workflow for Next.js + Supabase + Stripe + AI teams.
+# Drop-in GitHub Actions workflow for Next.js, Drizzle, Prisma, Python FastAPI,
+# Supabase/Postgres, Stripe & AI teams.
 # Copy to .github/workflows/billing-watchdog.yml in YOUR repository.
 #
 # Zero exfiltration:
-# - Pull requests run `verify-ci` (ProofTwin Free Diagnostic Gate) with ZERO
-#   database URLs and ZERO Stripe keys (safe on forked PRs).
-# - Nightly / manual runs execute inside your own GitHub Actions runner, reading
-#   Postgres in one REPEATABLE READ, READ ONLY transaction and Stripe with a
-#   read-only restricted key (rk_*).
-#
-# Prerequisites for nightly live reconciliation (`reconcile` job):
-#   1. reconcile.config.json committed at the repository root.
-#   2. Repository secrets:
-#        READONLY_DATABASE_URL  dedicated read-only BYPASSRLS role
-#        STRIPE_RESTRICTED_KEY  rk_live_... with read access to subscriptions, invoices, prices
-#        SLACK_WEBHOOK_URL / DISCORD_WEBHOOK_URL  optional, used by the nightly alert
+# - Pull requests run `verify-ci` (ProofTwin Zero-Credential Gate) with ZERO
+#   database URLs and ZERO Stripe keys (safe on forked PRs and works out of the
+#   box on the Free Diagnostic tier).
+# - Optional Self-Hosted Pro v2 nightly live reconciliation (`reconcile` job
+#   template commented out below) executes inside your own GitHub Actions runner,
+#   reading Postgres in one REPEATABLE READ, READ ONLY transaction and Stripe
+#   with a read-only restricted key (rk_*).
 # ==============================================================================
 name: Billing Integrity & ProofTwin Security Gate
 
 on:
-  schedule:
-    # Every night at 02:00 UTC: scan, and alert when a webhook secret is set.
-    - cron: "0 2 * * *"
   workflow_dispatch:
     inputs:
       command:
-        description: "Watchdog command to run"
+        description: "ProofTwin CI gate command to run"
         required: false
-        default: "scan"
+        default: "verify-ci"
         type: choice
         options:
-          - scan
-          - alert
           - verify-ci
+          - lint-sql
+          - lint-code
   pull_request:
     paths:
       - "reconcile.config.json"
       - "supabase/migrations/**"
+      - "drizzle/**"
+      - "prisma/**"
       - "app/**"
       - "src/**"
+      - ".mcp.json"
 
 permissions:
   contents: read
 
 jobs:
   prooftwin-pr-gate:
-    # Zero-credential PR gate: checks SQL migrations, multi-tenant RLS/SECURITY DEFINER
-    # policies, Next.js Stripe webhook raw-body HMAC verification, and LLM Denial-of-Wallet holds.
-    if: github.event_name == 'pull_request'
+    # Zero-credential PR gate: checks SQL migrations, Drizzle/Prisma schemas,
+    # multi-tenant RLS/SECURITY DEFINER policies, Stripe webhook raw-body HMAC
+    # verification, LLM Denial-of-Wallet holds, and .mcp.json tool pinning.
     name: ProofTwin Zero-Credential PR Gate
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -58,12 +54,13 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v5
 
-      - name: Run ProofTwin SQL, RLS & AI Route Gate
-        uses: mariostosic0806/billing-watchdog@v2.3.0
+      - name: Run ProofTwin SQL, ORM, RLS, MCP & AI Route Gate
+        uses: mariostosic0806/billing-watchdog@v2.4.0
         with:
-          command: verify-ci
+          command: ${{ inputs.command || 'verify-ci' }}
           config-path: reconcile.config.json
           sql-path: supabase/migrations
+          code-dir: src
           sarif-file: prooftwin.sarif
           agent-fix-file: prooftwin-agent-fix.md
 
@@ -73,47 +70,33 @@ jobs:
         with:
           sarif_file: prooftwin.sarif
 
-  reconcile:
-    if: github.event_name != 'pull_request'
-    name: Read-only Stripe <-> Postgres/Supabase reconciliation
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    # Secrets are mapped to env at job level: step `if:` conditions cannot read `secrets`.
-    env:
-      DATABASE_URL: ${{ secrets.READONLY_DATABASE_URL }}
-      STRIPE_RESTRICTED_KEY: ${{ secrets.STRIPE_RESTRICTED_KEY }}
-      SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
-      DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v5
-
-      - name: Require the read-only credentials
-        if: env.DATABASE_URL == '' || env.STRIPE_RESTRICTED_KEY == ''
-        run: |
-          echo "::error::Set the READONLY_DATABASE_URL and STRIPE_RESTRICTED_KEY repository secrets."
-          exit 1
-
-      - name: Choose command
-        id: cmd
-        env:
-          EVENT_NAME: ${{ github.event_name }}
-          REQUESTED_COMMAND: ${{ inputs.command }}
-        run: |
-          cmd="scan"
-          if [ "$EVENT_NAME" = "workflow_dispatch" ] && [ -n "$REQUESTED_COMMAND" ]; then
-            cmd="$REQUESTED_COMMAND"
-          elif [ "$EVENT_NAME" = "schedule" ] && { [ -n "$SLACK_WEBHOOK_URL" ] || [ -n "$DISCORD_WEBHOOK_URL" ]; }; then
-            cmd="alert"
-          fi
-          echo "command=$cmd" >> "$GITHUB_OUTPUT"
-
-      - name: Run read-only billing integrity watchdog
-        uses: mariostosic0806/billing-watchdog@v2.3.0
-        with:
-          command: ${{ steps.cmd.outputs.command }}
-          config-path: reconcile.config.json
-          database-url: ${{ env.DATABASE_URL }}
-          stripe-restricted-key: ${{ env.STRIPE_RESTRICTED_KEY }}
-          slack-webhook-url: ${{ env.SLACK_WEBHOOK_URL }}
-          discord-webhook-url: ${{ env.DISCORD_WEBHOOK_URL }}
+  # ============================================================================
+  # OPTIONAL SELF-HOSTED PRO v2 TEMPLATE: Nightly Live Stripe <-> Postgres Scan
+  # Uncomment this job (and add a `schedule: - cron: "0 2 * * *"` trigger above)
+  # once you unlock Self-Hosted Billing Watchdog Pro v2 (`src/cli.ts` bundle) and
+  # configure READONLY_DATABASE_URL + STRIPE_RESTRICTED_KEY repository secrets.
+  # ============================================================================
+  # reconcile:
+  #   if: github.event_name != 'pull_request'
+  #   name: Read-only Stripe <-> Postgres/Supabase reconciliation (Self-Hosted Pro v2)
+  #   runs-on: ubuntu-latest
+  #   timeout-minutes: 15
+  #   # Secrets are mapped to env at job level: step `if:` conditions cannot read `secrets`.
+  #   env:
+  #     DATABASE_URL: ${{ secrets.READONLY_DATABASE_URL }}
+  #     STRIPE_RESTRICTED_KEY: ${{ secrets.STRIPE_RESTRICTED_KEY }}
+  #     SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+  #     DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+  #   steps:
+  #     - name: Checkout repository
+  #       uses: actions/checkout@v5
+  #
+  #     - name: Require the read-only credentials
+  #       if: env.DATABASE_URL == '' || env.STRIPE_RESTRICTED_KEY == ''
+  #       run: |
+  #         echo "::error::Set the READONLY_DATABASE_URL and STRIPE_RESTRICTED_KEY repository secrets."
+  #         exit 1
+  #
+  #     - name: Run read-only billing integrity watchdog (Self-Hosted Pro v2)
+  #       run: |
+  #         npx billing-watchdog alert --config reconcile.config.json --redact-entities

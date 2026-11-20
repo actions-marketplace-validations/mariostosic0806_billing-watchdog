@@ -5,12 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Billing Watchdog v2 — Deterministic Firewall for Stripe &amp; Postgres Credit Ledgers</title>
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23141413' stroke-width='2' stroke-linecap='square' stroke-linejoin='miter'%3E%3Crect x='2.5' y='2.5' width='19' height='19' rx='2'/%3E%3Cpath d='M6 12h4l2-5 3 10 2-5h1'/%3E%3C/svg%3E" />
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&family=Newsreader:opsz,wght@6..72,500;6..72,600&display=swap" rel="stylesheet" />
-  <script type="module" crossorigin src="./assets/index-BmaaOt02.js"></script>
-  <link rel="modulepreload" crossorigin href="./assets/vendor-B0kZVdRu.js">
-  <link rel="stylesheet" crossorigin href="./assets/index-CWPNG__d.css">
+  <script type="module" crossorigin src="./assets/index-BYr7u211.js"></script>
+  <link rel="modulepreload" crossorigin href="./assets/vendor-BLzmceRs.js">
+  <link rel="stylesheet" crossorigin href="./assets/index-Nt9cdkWS.css">
 </head>
 <body class="bg-[#F4F2EC] text-[#141413] antialiased">
   <div id="root">
@@ -21,6 +18,7 @@
       <div style="display:flex;gap:12px;flex-wrap:wrap;margin:16px 0;">
         <button type="button" onclick="startPolarCheckout('Pro Monthly Watchdog v2 ($49/mo)', 4900)">Buy Pro Monthly ($49/mo)</button>
         <button type="button" onclick="startPolarCheckout('Lifetime Team License v2 ($149 One-Time)', 14900)">Buy Lifetime Team ($149)</button>
+        <button type="button" onclick="startPolarCheckout('Agency &amp; Client-Handover License v2 ($299 One-Time)', 29900)">Buy Agency &amp; Client-Handover ($299)</button>
       </div>
       <div id="license-status-msg" role="status">FREE DIAGNOSTIC MODE (REDACTED IN FREE DIAGNOSTIC MODE)</div>
       <footer style="margin-top:24px;padding-top:16px;border-top:1px solid #DDD8CE;font-size:13px;color:#47453F;">
@@ -34,7 +32,7 @@
     </main>
   </div>
   <script>
-// Billing Watchdog v2 — Canonical Deterministic Headless Kernel
+// Billing Watchdog v2.4.0 — Canonical Deterministic Headless Kernel
 // Runs identically in Node VM verification sandboxes and as React 19 useSyncExternalStore backing store.
 // Zero external dependencies. Zero hardcoded secrets or plaintext license keys.
 
@@ -183,7 +181,12 @@ function escapeHtmlSafe(raw) {
 }
 
 function formatUsdFromCents(cents) {
-  return "$" + (cents / 100).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const safe = Number.isSafeInteger(cents) ? cents : Math.trunc(Number(cents) || 0);
+  const sign = safe < 0 ? "-" : "";
+  const abs = Math.abs(safe);
+  const whole = Math.trunc(abs / 100);
+  const minor = abs % 100;
+  return sign + "$" + whole.toLocaleString("en-US") + "." + String(minor).padStart(2, "0");
 }
 
 function formatUsdFromIntegerCents(amountCents) {
@@ -290,11 +293,65 @@ const BROKEN_RLS_SQL = [
   "",
   "-- DEFECT 6: SECURITY DEFINER RPC accepts target_user_id without auth.uid() check or SET search_path!",
   "CREATE OR REPLACE FUNCTION public.grant_bonus_credits(target_user_id uuid, delta integer)",
-  "RETURNS void LANGUAGE plpgsql SECURITY DEFINER AS $",
+  "RETURNS void LANGUAGE plpgsql SECURITY DEFINER AS $$",
   "BEGIN",
   "  UPDATE public.wallets SET credits_balance = credits_balance + delta WHERE user_id = target_user_id;",
   "END;",
-  "$;"
+  "$$;"
+].join("\n");
+
+const VULNERABLE_ORM_SCHEMA = [
+  "// Drizzle ORM Schema (src/db/schema.ts) — Missing check(), missing .unique(), and float money",
+  "import { pgTable, uuid, integer, text, real } from 'drizzle-orm/pg-core';",
+  "",
+  "export const wallets = pgTable('wallets', {",
+  "  userId: uuid('user_id').primaryKey(),",
+  "  // BUG 1: Missing check('wallets_non_neg', sql`${table.creditsBalance} >= 0`)",
+  "  creditsBalance: integer('credits_balance').notNull().default(100),",
+  "});",
+  "",
+  "export const creditTransactions = pgTable('credit_transactions', {",
+  "  id: uuid('id').defaultRandom().primaryKey(),",
+  "  userId: uuid('user_id').notNull(),",
+  "  // BUG 2: Missing .unique() on stripeEventId -> webhook retry double-grant!",
+  "  stripeEventId: text('stripe_event_id').notNull(),",
+  "  // BUG 3: IEEE-754 float money column instead of integer cents!",
+  "  amountUsd: real('amount_usd').notNull(),",
+  "  creditsDelta: integer('credits_delta').notNull(),",
+  "});"
+].join("\n");
+
+const VULNERABLE_PRISMA_SCHEMA = [
+  "// Prisma Schema (prisma/schema.prisma) — Float money columns & missing @unique on stripeEventId",
+  "model Wallet {",
+  "  userId  String @id @default(uuid())",
+  "  credits Float  @default(100)",
+  "}",
+  "",
+  "model CreditTransaction {",
+  "  id            String @id @default(uuid())",
+  "  userId        String",
+  "  stripeEventId String",
+  "  amountPaid    Float",
+  "  creditsDelta  Float",
+  "}"
+].join("\n");
+
+const SAMPLE_STRIPE_SUBS_CSV = [
+  "id,customer,status,unit_amount,currency",
+  "sub_active_pro_01,cus_ok_01,active,4900,usd",
+  "sub_zombie_scale_02,cus_burned_02,canceled,9900,usd",
+  "sub_zombie_unpaid_03,cus_unpaid_03,unpaid,9900,usd",
+  "sub_grace_sepa_04,cus_eu_04,past_due,4900,eur"
+].join("\n");
+
+const SAMPLE_DB_SUBS_CSV = [
+  "stripe_subscription_id,user_id,status,unit_amount",
+  "sub_active_pro_01,usr_ok_01,active,4900",
+  "sub_zombie_scale_02,usr_zombie_02,active,9900",
+  "sub_zombie_unpaid_03,usr_zombie_03,active,9900",
+  "sub_deleted_ghost_05,usr_ghost_05,active,4900",
+  "sub_grace_sepa_04,usr_eu_04,active,4900"
 ].join("\n");
 
 let __state = {
@@ -327,13 +384,30 @@ let __state = {
     activePreset: "vulnerable",
     sqlInput: VULNERABLE_SQL,
     isCodeMode: false,
+    sourceKind: "sql",
     findings: [],
     patchOutput: "",
+    patchStep1Transactional: "",
+    patchStep2Concurrent: "",
     lintMs: 2
   },
   reconciler: {
     rawReport: "",
-    checks: []
+    checks: [],
+    diff: {
+      stripeInput: SAMPLE_STRIPE_SUBS_CSV,
+      dbInput: SAMPLE_DB_SUBS_CSV,
+      stripeRowsCount: 0,
+      dbRowsCount: 0,
+      rows: [],
+      zombieCount: 0,
+      missingInStripeCount: 0,
+      pastDueGraceCount: 0,
+      totalMonthlyBleedCents: 0,
+      dryRunSelectSql: "",
+      remediationSql: "",
+      parseError: null
+    }
   }
 };
 
@@ -355,9 +429,20 @@ function commitState(mutator) {
 }
 
 function lineOfPattern(text, regex) {
-  const m = regex.exec(text);
+  const flags = regex.flags.replace(/g/g, "");
+  const clone = new RegExp(regex.source, flags);
+  const m = clone.exec(text);
   if (!m || m.index === undefined) return 1;
   return text.slice(0, m.index).split(/\r?\n/).length;
+}
+
+function lineAtOffset(text, offset) {
+  if (!offset || offset <= 0) return 1;
+  return text.slice(0, offset).split(/\r?\n/).length;
+}
+
+function escapeRegExpSafe(str) {
+  return String(str).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function buildOscilloscopeTicks(planPriceCents, planCredits, thresholdCents, _oooLeakedCents, disputeDeficitCredits, disputeDeficitCents) {
@@ -509,6 +594,9 @@ function applyProUnlockedUiState(labelSuffix) {
   updateLicenseDom(statusHtml, "PRO UNLOCKED", true);
   runChaosSimulation(currentChaosFilter);
   runSqlLinter();
+  if (__state.reconciler && __state.reconciler.diff) {
+    runSubscriptionDiffReconciler(__state.reconciler.diff.stripeInput, __state.reconciler.diff.dbInput);
+  }
 }
 
 function applyLicenseRelockState(statusKind, msg, statusCssClass, draftOverride) {
@@ -528,11 +616,14 @@ function applyLicenseRelockState(statusKind, msg, statusCssClass, draftOverride)
   updateLicenseDom(html, "PRO LICENSE REQUIRED", false);
   runChaosSimulation(currentChaosFilter);
   runSqlLinter();
+  if (__state.reconciler && __state.reconciler.diff) {
+    runSubscriptionDiffReconciler(__state.reconciler.diff.stripeInput, __state.reconciler.diff.dbInput);
+  }
 }
 
 async function verifyEd25519LicenseInBrowser(rawKey, overrideSpkiB64) {
   const trimmed = (rawKey || "").trim();
-  const match = /^BWV2E-(PRO_MONTHLY|LIFETIME_TEAM)-(WATCHDOG_V2|BUNDLE_ALL)-(\d{10,12})-([0-9A-F]{12})-([A-Za-z0-9_-]{86})$/.exec(trimmed);
+  const match = /^BWV2E-(PRO_MONTHLY|LIFETIME_TEAM|AGENCY_TEAM|AGENCY_CLIENT_HANDOVER)-(WATCHDOG_V2|BUNDLE_ALL)-(\d{10,12})-([0-9A-F]{12})-([A-Za-z0-9_-]{86})$/.exec(trimmed);
   if (!match) {
     applyLicenseRelockState("error", "Malformed BWV2E Ed25519 License Key.", "status-danger");
     return false;
@@ -616,6 +707,9 @@ function unlockProPortal(explicitKey) {
     if (wasUnlocked) {
       runChaosSimulation(currentChaosFilter);
       runSqlLinter();
+      if (__state.reconciler && __state.reconciler.diff) {
+        runSubscriptionDiffReconciler(__state.reconciler.diff.stripeInput, __state.reconciler.diff.dbInput);
+      }
     }
     verifyEd25519LicenseInBrowser(rawKey);
     return false;
@@ -631,7 +725,7 @@ function unlockProPortal(explicitKey) {
   } else {
     applyLicenseRelockState(
       "error",
-      "Invalid License Key. Purchase Pro ($49/mo) or Lifetime ($149) below to receive your BWV2E-... key.",
+      "Invalid License Key. Purchase Pro ($49/mo), Lifetime ($149), or Agency ($299) below to receive your BWV2E-... key.",
       "status-danger",
       rawKey
     );
@@ -938,7 +1032,7 @@ function runChaosSimulation(filterMode, paramsOverride) {
       "-- Diagnostic Result: " + quarantinedAccounts.length + " account(s) exceeded threshold (" + quarantinedAccounts.map((a) => a.userId + "=" + a.leakCents + "c").join(", ") + ")",
       "--",
       "-- [REDACTED IN FREE DIAGNOSTIC MODE]",
-      "-- Enter your BWV2-... Pro/Lifetime License Key above (or purchase Pro $49/mo / Lifetime $149 below)",
+      "-- Enter your BWV2E-... Pro/Lifetime/Agency License Key above (or purchase Pro $49/mo, Lifetime $149, or Agency $299 below)",
       "-- to unlock executable circuit-breaker SQL statements & the atomic PL/pgSQL SELECT ... FOR UPDATE engine."
     );
   } else {
@@ -1023,7 +1117,7 @@ function runChaosSimulation(filterMode, paramsOverride) {
 
 function copyQuarantineSql() {
   if (!isProLicenseUnlocked) {
-    const msg = "Pro / Lifetime License Required to copy executable Quarantine SQL.";
+    const msg = "Pro / Lifetime / Agency License Required to copy executable Quarantine SQL.";
     const html = 'Status: <strong class="status-warn">' + msg + "</strong>";
     commitState((next) => {
       next.licenseStatusKind = "warn";
@@ -1056,6 +1150,12 @@ function loadSampleSql(mode) {
   } else if (mode === "rls_idor") {
     code = BROKEN_RLS_SQL;
     preset = "rls_idor";
+  } else if (mode === "orm" || mode === "drizzle") {
+    code = VULNERABLE_ORM_SCHEMA;
+    preset = "orm";
+  } else if (mode === "prisma") {
+    code = VULNERABLE_PRISMA_SCHEMA;
+    preset = "prisma";
   }
 
   if (!isReactMounted()) {
@@ -1072,13 +1172,31 @@ function loadSampleSql(mode) {
 }
 
 function stripJsCommentsPreserveLines(src) {
-  return src
+  const lines = String(src).split(/\r?\n/);
+  const suppressedLines = new Set();
+  for (let i = 0; i < lines.length; i++) {
+    if (/\/\/\s*(?:watchdog-ignore|prooftwin-ignore)\b/i.test(lines[i])) {
+      suppressedLines.add(i + 1);
+      suppressedLines.add(i + 2);
+    }
+  }
+  const cleaned = String(src)
     .replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\r\n]/g, " "))
     .replace(/(^|[^:\\])\/\/[^\r\n]*/g, "$1");
+  return { cleaned, suppressedLines };
 }
 
 function stripSqlCommentsPreserveLines(src) {
-  return src.replace(/\/\*[\s\S]*?\*\/|--[^\r\n]*/g, (m) => m.replace(/[^\r\n]/g, " "));
+  const lines = String(src).split(/\r?\n/);
+  const suppressedLines = new Set();
+  for (let i = 0; i < lines.length; i++) {
+    if (/--\s*(?:watchdog-ignore|prooftwin-ignore)\b/i.test(lines[i])) {
+      suppressedLines.add(i + 1);
+      suppressedLines.add(i + 2);
+    }
+  }
+  const cleaned = String(src).replace(/\/\*[\s\S]*?\*\/|--[^\r\n]*/g, (m) => m.replace(/[^\r\n]/g, " "));
+  return { cleaned, suppressedLines };
 }
 
 function extractBalancedParen(str, startIdx) {
@@ -1087,22 +1205,40 @@ function extractBalancedParen(str, startIdx) {
   if (i >= str.length || str[i] !== "(") return null;
   let depth = 0;
   let inSingleQuote = false;
+  let inDoubleQuote = false;
+  let inBacktick = false;
   const contentStart = i + 1;
   for (; i < str.length; i++) {
     const ch = str[i];
     if (inSingleQuote) {
-      if (ch === "'" && str[i + 1] === "'") {
+      if (ch === "\\" || (ch === "'" && str[i + 1] === "'")) {
         i++;
       } else if (ch === "'") {
         inSingleQuote = false;
       }
       continue;
     }
-    if (ch === "'") {
-      inSingleQuote = true;
-    } else if (ch === "(") {
-      depth++;
-    } else if (ch === ")") {
+    if (inDoubleQuote) {
+      if (ch === "\\" || (ch === '"' && str[i + 1] === '"')) {
+        i++;
+      } else if (ch === '"') {
+        inDoubleQuote = false;
+      }
+      continue;
+    }
+    if (inBacktick) {
+      if (ch === "\\") {
+        i++;
+      } else if (ch === "`") {
+        inBacktick = false;
+      }
+      continue;
+    }
+    if (ch === "'") inSingleQuote = true;
+    else if (ch === '"') inDoubleQuote = true;
+    else if (ch === "`") inBacktick = true;
+    else if (ch === "(") depth++;
+    else if (ch === ")") {
       depth--;
       if (depth === 0) {
         return { expr: str.slice(contentStart, i), endIdx: i + 1 };
@@ -1112,7 +1248,109 @@ function extractBalancedParen(str, startIdx) {
   return null;
 }
 
-function isPermissivePolicyExpr(rawExpr) {
+function extractBalancedBrace(str, startIdx) {
+  let i = startIdx;
+  while (i < str.length && /\s/.test(str[i])) i++;
+  if (i >= str.length || str[i] !== "{") return null;
+  let depth = 0;
+  let inQuote = null;
+  const contentStart = i + 1;
+  for (; i < str.length; i++) {
+    const ch = str[i];
+    if (inQuote) {
+      if (ch === "\\") {
+        i++;
+      } else if (ch === inQuote) {
+        inQuote = null;
+      }
+      continue;
+    }
+    if (ch === "'" || ch === '"' || ch === "`") {
+      inQuote = ch;
+    } else if (ch === "{") {
+      depth++;
+    } else if (ch === "}") {
+      depth--;
+      if (depth === 0) {
+        return { body: str.slice(contentStart, i), endIdx: i + 1 };
+      }
+    }
+  }
+  return null;
+}
+
+function maskDollarQuotedBodiesPreserveLines(sql) {
+  return sql.replace(/(\$[a-zA-Z0-9_]*\$)([\s\S]*?)\1/g, (_full, tag, inner) => {
+    return tag + inner.replace(/[^\r\n]/g, " ") + tag;
+  });
+}
+
+function parseQualifiedSqlName(raw) {
+  const trimmed = String(raw || "").trim();
+  const dotIdx = trimmed.indexOf(".");
+  let schema = "public";
+  let name = trimmed;
+  if (dotIdx !== -1) {
+    schema = trimmed.slice(0, dotIdx).trim();
+    name = trimmed.slice(dotIdx + 1).trim();
+  }
+  const unquote = (ident) => {
+    const s = ident.trim();
+    if (s.startsWith('"') && s.endsWith('"') && s.length >= 2) {
+      return s.slice(1, -1).replace(/""/g, '"');
+    }
+    return s;
+  };
+  const cleanSchema = unquote(schema) || "public";
+  const cleanName = unquote(name);
+  const formatPart = (part) => (/^[a-z_][a-z0-9_]*$/.test(part) ? part : '"' + part.replace(/"/g, '""') + '"');
+  return {
+    schema: cleanSchema,
+    name: cleanName,
+    qualifiedSql: formatPart(cleanSchema) + "." + formatPart(cleanName),
+    safeIdentPrefix: cleanName.replace(/[^a-zA-Z0-9_]/g, "_").toLowerCase()
+  };
+}
+
+function formatSqlIdentifier(rawIdent) {
+  const unquoted =
+    rawIdent.startsWith('"') && rawIdent.endsWith('"') && rawIdent.length >= 2
+      ? rawIdent.slice(1, -1).replace(/""/g, '"')
+      : rawIdent;
+  return /^[a-z_][a-z0-9_]*$/.test(unquoted) ? unquoted : '"' + unquoted.replace(/"/g, '""') + '"';
+}
+
+function formatSqlPolicyName(rawPol) {
+  const trimmed = String(rawPol || "").trim();
+  const unquoted =
+    trimmed.startsWith('"') && trimmed.endsWith('"') && trimmed.length >= 2
+      ? trimmed.slice(1, -1).replace(/""/g, '"')
+      : trimmed;
+  return '"' + unquoted.replace(/"/g, '""') + '"';
+}
+
+function hasTenantHelperCall(expr) {
+  const re = /\b(?:([a-zA-Z0-9_"]+)\s*\.\s*)?([a-zA-Z0-9_"]+)\s*\(([^)]*)\)/g;
+  let m;
+  while ((m = re.exec(expr)) !== null) {
+    const schemaPart = (m[1] || "").replace(/"/g, "").toLowerCase();
+    const fnPart = (m[2] || "").replace(/"/g, "").toLowerCase();
+    const argsPart = (m[3] || "").trim();
+    if (schemaPart === "auth") continue;
+    if (fnPart === "coalesce" || fnPart === "nullif" || fnPart === "lower" || fnPart === "upper" || fnPart === "cast" || fnPart === "exists" || fnPart === "in" || fnPart === "any" || fnPart === "all" || fnPart === "count" || fnPart === "sum") {
+      continue;
+    }
+    if (
+      /(?:member|tenant|org|organization|team|workspace|owner|access|billing|mandant)/i.test(fnPart) &&
+      argsPart.length > 0
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function isPermissiveOrUncorrelatedPolicyExpr(rawExpr, tableShortName) {
   let e = rawExpr.trim();
   while (e.startsWith("(") && e.endsWith(")")) {
     const inner = extractBalancedParen(e, 0);
@@ -1122,23 +1360,385 @@ function isPermissivePolicyExpr(rawExpr) {
       break;
     }
   }
-  if (/^true$/i.test(e) || /^1\s*=\s*1$/.test(e)) return true;
-  if (/auth\.role\s*\(\s*\)\s*=\s*'authenticated'/i.test(e) && !/auth\.(?:uid|jwt)\s*\(/i.test(e)) {
+  if (!e) return false;
+  if (/^true$/i.test(e) || /\b1\s*=\s*1\b/.test(e)) return true;
+
+  const hasCallerAuth = /\bauth\.(?:uid|jwt)\s*\(|\brequest\.jwt\.claim|\bcurrent_setting\s*\(\s*'request\.jwt\.claims'/i.test(e);
+  const hasHelper = hasTenantHelperCall(e);
+
+  if (/\bauth\.role\s*\(\s*\)\s*=\s*'authenticated'/i.test(e) && !hasCallerAuth && !hasHelper) {
     return true;
   }
+
+  // Catch uncorrelated membership subqueries on org-owned tables:
+  // e.g. EXISTS (SELECT 1 FROM public.org_members WHERE user_id = auth.uid()) missing org_id correlation!
+  const lowerTbl = String(tableShortName || "").toLowerCase();
+  if (
+    /\bEXISTS\s*\([\s\S]*?\b(?:org_members|organization_members|team_members|workspace_members)\b/i.test(e) &&
+    lowerTbl !== "org_members" &&
+    lowerTbl !== "organization_members" &&
+    lowerTbl !== "team_members" &&
+    lowerTbl !== "workspace_members" &&
+    lowerTbl !== "users" &&
+    lowerTbl !== "profiles"
+  ) {
+    const hasOrgCorrelation = /\b(?:org_id|organization_id|team_id|workspace_id)\s*=|\.\s*(?:org_id|organization_id|team_id|workspace_id)\b/i.test(e);
+    if (!hasOrgCorrelation) return true;
+  }
+
+  // Any policy lacking BOTH caller identity (auth.uid/auth.jwt/current_setting) AND tenant helper call
+  // (catches USING (amount_cents >= 0), USING (org_id IS NOT NULL), USING (org_id IN (SELECT org_id FROM org_members)))
+  if (!hasCallerAuth && !hasHelper) {
+    return true;
+  }
+
   return false;
 }
 
-function stmtHasNonNegativeBalanceCheck(stmt) {
+function stmtHasNonNegativeCheckForCol(stmt, colName) {
   if (!/\bCHECK\b/i.test(stmt)) return false;
-  const chkRe = /\bCHECK\s*\([\s(]*([a-zA-Z0-9_."]+)\s*>=\s*(?:\(\s*0\s*\)|0\b)/gi;
-  let m;
-  while ((m = chkRe.exec(stmt)) !== null) {
-    if (m[1].toLowerCase().indexOf("balance") !== -1) {
-      return true;
+  const escCol = escapeRegExpSafe(colName);
+  const forwardRe = new RegExp(
+    "\\bCHECK\\s*\\([\\s(]*(?:[a-zA-Z0-9_.\"]+\\.)?\"?" + escCol + "\"?(?:::[a-zA-Z0-9_\\s()[\\],]+)?[\\s)]*(?:>=\\s*\\(?\\s*0\\b|>\\s*-1\\b)",
+    "i"
+  );
+  const reverseRe = new RegExp(
+    "\\bCHECK\\s*\\([\\s(]*0\\s*<=\\s*(?:[a-zA-Z0-9_.\"]+\\.)?\"?" + escCol + "\"?\\b",
+    "i"
+  );
+  return forwardRe.test(stmt) || reverseRe.test(stmt);
+}
+
+function inferTenantPolicyExprForTable(tblInfo) {
+  const body = tblInfo ? tblInfo.body : "";
+  const lowerName = tblInfo ? tblInfo.name.toLowerCase() : "";
+  const orgColMatch = /^\s*"?(org_id|organization_id|team_id|workspace_id)"?\s+[a-zA-Z]/im.exec(body);
+  if (orgColMatch) {
+    return "public.is_org_member(" + formatSqlIdentifier(orgColMatch[1]) + ")";
+  }
+  if (lowerName === "organizations" || lowerName === "teams" || lowerName === "workspaces") {
+    const ownerMatch = /^\s*"?(owner_id|created_by|user_id)"?\s+[a-zA-Z]/im.exec(body);
+    if (ownerMatch) {
+      return "auth.uid() = " + formatSqlIdentifier(ownerMatch[1]);
+    }
+    return "public.is_org_member(id)";
+  }
+  const userColMatch = /^\s*"?(user_id|owner_id|profile_id|account_id)"?\s+[a-zA-Z]/im.exec(body);
+  if (userColMatch) {
+    return "auth.uid() = " + formatSqlIdentifier(userColMatch[1]);
+  }
+  if (lowerName === "users" || lowerName === "profiles" || lowerName === "accounts") {
+    return "auth.uid() = id";
+  }
+  if (/webhook|stripe_event/i.test(lowerName)) {
+    return "auth.role() = 'service_role'";
+  }
+  return "auth.uid() = user_id";
+}
+
+function renderFindingsDom(findings, emptyLabel, patchOutputText) {
+  if (isReactMounted()) return;
+  const container = getElSafe("findings-container");
+  const patchEl = getElSafe("patch-output");
+  if (container) {
+    if (findings.length === 0) {
+      container.innerHTML = '<div class="finding-ok">' + escapeHtmlSafe(emptyLabel) + "</div>";
+    } else {
+      container.innerHTML = findings
+        .map(
+          (f) =>
+            '<div class="finding">' +
+            '<div class="finding-head"><span class="sev ' +
+            (f.sev === "HIGH" ? "sev-high" : "") +
+            '">' +
+            escapeHtmlSafe(f.sev) +
+            "</span><strong>" +
+            escapeHtmlSafe(f.code) +
+            '</strong> <span class="finding-table">(' +
+            escapeHtmlSafe(f.table) +
+            ")</span></div>" +
+            '<div class="finding-msg">' +
+            escapeHtmlSafe(f.msg) +
+            "</div>" +
+            '<div class="code-diff">' +
+            '<div class="diff-del">' +
+            escapeHtmlSafe(f.diffRemove) +
+            "</div>" +
+            '<div class="diff-add">' +
+            escapeHtmlSafe(f.diffAdd) +
+            "</div>" +
+            "</div>" +
+            "</div>"
+        )
+        .join("");
     }
   }
-  return false;
+  if (patchEl) patchEl.value = patchOutputText;
+}
+
+function runPrismaSchemaAudit(rawText, tStart, presetOverride) {
+  const stripped = stripJsCommentsPreserveLines(rawText);
+  const cleanPrisma = stripped.cleaned;
+  const findings = [];
+  const patchStatements = [];
+
+  const modelRe = /\bmodel\s+([A-Za-z_][A-Za-z0-9_]*)\s*\{/g;
+  let mm;
+  while ((mm = modelRe.exec(cleanPrisma)) !== null) {
+    const modelName = mm[1];
+    const openBraceIdx = cleanPrisma.indexOf("{", mm.index);
+    const extracted = openBraceIdx !== -1 ? extractBalancedBrace(cleanPrisma, openBraceIdx) : null;
+    if (!extracted) continue;
+    const modelBody = extracted.body;
+    const bodyStartOffset = openBraceIdx + 1;
+    const isBillingModel = /wallet|credit|balance|transaction|ledger|subscription|invoice|payment|webhook|plan|meter/i.test(
+      modelName
+    );
+
+    // 1. Flag ALL Float / Decimal billing fields (/g across entire model body!)
+    const floatFieldRe = /^[ \t]*([A-Za-z_][A-Za-z0-9_]*)[ \t]+(Float|Decimal)\b([^\r\n]*)/gm;
+    let fm;
+    while ((fm = floatFieldRe.exec(modelBody)) !== null) {
+      const fieldName = fm[1];
+      const fieldType = fm[2];
+      const isMoneyOrCreditField =
+        isBillingModel ||
+        /credit|balance|amount|price|cent|usd|eur|cost|fee|total|paid|delta|quota|token|money/i.test(fieldName);
+      if (!isMoneyOrCreditField) continue;
+      const lineNum = lineAtOffset(cleanPrisma, bodyStartOffset + fm.index);
+      if (stripped.suppressedLines.has(lineNum)) continue;
+      findings.push({
+        sev: "HIGH",
+        title: "Prisma " + fieldType + " money/credit column risks rounding drift",
+        code: "ORM 1 · FLOATING_POINT_MONEY_ARITHMETIC",
+        table: "model " + modelName + "." + fieldName,
+        line: lineNum,
+        msg:
+          "Model " +
+          modelName +
+          "." +
+          fieldName +
+          " uses " +
+          fieldType +
+          " instead of Int/BigInt integer minor units (cents or whole credits).",
+        diffRemove: "-   " + fieldName + " " + fieldType,
+        diffAdd: "+   " + fieldName + " Int // Store integer cents or atomic integer credits"
+      });
+      patchStatements.push(
+        '-- Convert "' + modelName + '"."' + fieldName + '" from ' + fieldType + " to integer minor units after auditing scale:",
+        'ALTER TABLE "public"."' + modelName + '" ALTER COLUMN "' + fieldName + '" TYPE INTEGER USING ROUND("' + fieldName + '")::INTEGER;'
+      );
+    }
+
+    // 2. Check stripeEventId / webhook event uniqueness (inline @unique/@id OR block @@unique([field]) / @@id([field]))
+    const eventFieldRe = /^[ \t]*(stripeEventId|stripe_event_id|webhookEventId|webhook_event_id|eventId|event_id)[ \t]+String\b([^\r\n]*)/gm;
+    let em;
+    while ((em = eventFieldRe.exec(modelBody)) !== null) {
+      const evField = em[1];
+      const evRest = em[2] || "";
+      if ((evField === "eventId" || evField === "event_id") && !isBillingModel) continue;
+      const hasInlineUnique = /@(?:unique|id)\b/.test(evRest);
+      const blockUniqueRe = new RegExp(
+        "@@(?:unique|id)\\s*\\(\\s*\\[\\s*" + escapeRegExpSafe(evField) + "\\s*\\]",
+        "m"
+      );
+      const hasBlockUnique = blockUniqueRe.test(modelBody);
+      if (!hasInlineUnique && !hasBlockUnique) {
+        const lineNum = lineAtOffset(cleanPrisma, bodyStartOffset + em.index);
+        if (stripped.suppressedLines.has(lineNum)) continue;
+        findings.push({
+          sev: "CRITICAL",
+          title: "Prisma webhook event column lacks @unique constraint",
+          code: "ORM 2 · PRISMA_MISSING_BILLING_CONSTRAINTS",
+          table: "model " + modelName + "." + evField,
+          line: lineNum,
+          msg:
+            "Field " +
+            modelName +
+            "." +
+            evField +
+            " lacks @unique or @@unique([" +
+            evField +
+            "]). Concurrent Stripe webhook retries will insert duplicate credit grants.",
+          diffRemove: "-   " + evField + " String",
+          diffAdd: "+   " + evField + " String @unique"
+        });
+        patchStatements.push(
+          '-- Run ALONE outside transaction blocks in Supabase SQL Editor:',
+          'CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS "' +
+            modelName +
+            "_" +
+            evField +
+            '_key" ON "public"."' +
+            modelName +
+            '" ("' +
+            evField +
+            '");'
+        );
+      }
+    }
+  }
+
+  const patchOutputText =
+    findings.length === 0
+      ? "// 0 Prisma Billing Schema Defects Found — Int/BigInt columns and @unique/@@unique constraints verified."
+      : !isProLicenseUnlocked
+        ? [
+            "// Billing Watchdog Prisma Schema Audit: " + findings.length + " Defect(s) Detected",
+            "// Affected Models: " + findings.map((f) => f.table).join(" | "),
+            "//",
+            "// [REDACTED IN FREE DIAGNOSTIC MODE]",
+            "// Enter your BWV2E-... License Key above to unlock quoted PostgreSQL + Prisma $transaction migration templates."
+          ].join("\n")
+        : [
+            "-- Billing Watchdog v2.4.0 — Prisma Quoted Identifier PostgreSQL Remediation",
+            ...patchStatements
+          ].join("\n");
+
+  renderFindingsDom(findings, "0 Prisma Schema Vulnerabilities Found", patchOutputText);
+  const tEnd = typeof performance !== "undefined" && typeof performance.now === "function" ? performance.now() : 0;
+  const lintMs = Math.max(1, Math.round(tEnd - tStart));
+  commitState((next) => {
+    next.linter = {
+      activePreset: presetOverride !== undefined ? presetOverride : next.linter.activePreset,
+      sqlInput: rawText,
+      isCodeMode: true,
+      sourceKind: "prisma",
+      findings,
+      patchOutput: patchOutputText,
+      patchStep1Transactional: isProLicenseUnlocked ? patchOutputText : "",
+      patchStep2Concurrent: "",
+      lintMs
+    };
+  });
+}
+
+function collectDrizzleFindings(cleanCode, suppressedLines) {
+  const findings = [];
+  const pgTableRe = /\bpgTable\s*\(/g;
+  let pm;
+  while ((pm = pgTableRe.exec(cleanCode)) !== null) {
+    const parenIdx = cleanCode.indexOf("(", pm.index);
+    const extracted = parenIdx !== -1 ? extractBalancedParen(cleanCode, parenIdx) : null;
+    if (!extracted) continue;
+    const callBody = extracted.expr;
+    const callStartOffset = parenIdx + 1;
+    const nameMatch = /^\s*['"`]([^'"`]+)['"`]/.exec(callBody);
+    const tableName = nameMatch ? nameMatch[1] : "drizzle_table";
+    const tableLine = lineAtOffset(cleanCode, pm.index);
+    const isWalletTable = /wallet|balance|credit_wallet|org_wallet|quota/i.test(tableName);
+    const isLedgerTable = /transaction|ledger|webhook|stripe_event|credit_tx/i.test(tableName);
+
+    // D1: Flag real() / doublePrecision() money or credit columns (/g)
+    const floatColRe = /\b([A-Za-z_][A-Za-z0-9_]*)\s*:\s*(real|doublePrecision)\s*\(/g;
+    let fm;
+    while ((fm = floatColRe.exec(callBody)) !== null) {
+      const propName = fm[1];
+      const colBuilder = fm[2];
+      if (!/amount|price|cent|usd|eur|credit|balance|cost|fee|total|paid|delta|quota|money/i.test(propName) && !isWalletTable && !isLedgerTable) {
+        continue;
+      }
+      const lineNum = lineAtOffset(cleanCode, callStartOffset + fm.index);
+      if (suppressedLines.has(lineNum)) continue;
+      findings.push({
+        sev: "HIGH",
+        title: "Drizzle " + colBuilder + "() float column on billing value",
+        code: "ORM 1 · FLOATING_POINT_MONEY_ARITHMETIC",
+        table: "pgTable('" + tableName + "')." + propName,
+        line: lineNum,
+        msg:
+          "Drizzle column " +
+          tableName +
+          "." +
+          propName +
+          " uses " +
+          colBuilder +
+          "() floating-point storage. Always store money and credits as integer() / bigint() minor units.",
+        diffRemove: "-   " + propName + ": " + colBuilder + "('...').notNull(),",
+        diffAdd: "+   " + propName + ": integer('...').notNull(), // Integer cents only"
+      });
+    }
+
+    // D2: Check wallet/balance pgTable for check(..., sql`... >= 0`)
+    const balColMatch =
+      /\b(creditsBalance|credits_balance|tokenQuota|token_quota|walletBalance|balanceCents|credits|balance)\s*:\s*(?:integer|bigint|bigserial|serial)\s*\(/.exec(
+        callBody
+      );
+    const requiresNonNeg =
+      balColMatch &&
+      (isWalletTable ||
+        /creditsBalance|credits_balance|tokenQuota|token_quota|walletBalance|balanceCents/i.test(balColMatch[1]) ||
+        (/profile|account/i.test(tableName) && /credits/i.test(balColMatch[1])));
+    if (requiresNonNeg) {
+      const hasDrizzleCheck = /\bcheck\s*\([\s\S]*?>=\s*0\b/.test(callBody);
+      if (!hasDrizzleCheck) {
+        const lineNum = lineAtOffset(cleanCode, callStartOffset + balColMatch.index);
+        if (!suppressedLines.has(lineNum)) {
+          findings.push({
+            sev: "CRITICAL",
+            title: "Drizzle wallet table missing non-negative check()",
+            code: "ORM 2 · DRIZZLE_MISSING_BILLING_CONSTRAINTS",
+            table: "pgTable('" + tableName + "')." + balColMatch[1],
+            line: lineNum,
+            msg:
+              "Drizzle pgTable('" +
+              tableName +
+              "') defines " +
+              balColMatch[1] +
+              " without check('...', sql`${table." +
+              balColMatch[1] +
+              "} >= 0`). Concurrent requests can drive balances negative.",
+            diffRemove: "- export const " + tableName + " = pgTable('" + tableName + "', { " + balColMatch[1] + ": integer(...) });",
+            diffAdd:
+              "+ export const " +
+              tableName +
+              " = pgTable('" +
+              tableName +
+              "', { ... }, (t) => [check('" +
+              tableName +
+              "_non_neg', sql`${t." +
+              balColMatch[1] +
+              "} >= 0`)]);"
+          });
+        }
+      }
+    }
+
+    // D3: Check webhook/event ID column for .unique() / .primaryKey() / uniqueIndex()
+    const evColRe = /\b(stripeEventId|stripe_event_id|webhookEventId|webhook_event_id|eventId|event_id)\s*:\s*[a-zA-Z0-9_]+\s*\([^)]*\)([^\r\n,}]*)/g;
+    let em;
+    while ((em = evColRe.exec(callBody)) !== null) {
+      const evProp = em[1];
+      const chainRest = em[2] || "";
+      if ((evProp === "eventId" || evProp === "event_id") && !isLedgerTable) continue;
+      const hasInlineUnique = /\.\s*(?:unique|primaryKey)\s*\(/.test(chainRest);
+      const hasTableUnique =
+        new RegExp("\\b(?:uniqueIndex|unique)\\s*\\([\\s\\S]*?\\b" + escapeRegExpSafe(evProp) + "\\b").test(
+          callBody
+        );
+      if (!hasInlineUnique && !hasTableUnique) {
+        const lineNum = lineAtOffset(cleanCode, callStartOffset + em.index);
+        if (!suppressedLines.has(lineNum)) {
+          findings.push({
+            sev: "CRITICAL",
+            title: "Drizzle stripeEventId column missing .unique() constraint",
+            code: "ORM 3 · DRIZZLE_MISSING_WEBHOOK_UNIQUE",
+            table: "pgTable('" + tableName + "')." + evProp,
+            line: lineNum || tableLine,
+            msg:
+              "Drizzle column " +
+              tableName +
+              "." +
+              evProp +
+              " omits .unique() and uniqueIndex(). Parallel Stripe webhook retries will insert duplicate credit grants.",
+            diffRemove: "-   " + evProp + ": text('stripe_event_id').notNull(),",
+            diffAdd: "+   " + evProp + ": text('stripe_event_id').notNull().unique(),"
+          });
+        }
+      }
+    }
+  }
+  return findings;
 }
 
 function runSqlLinter(codeOverride, presetOverride) {
@@ -1155,16 +1755,12 @@ function runSqlLinter(codeOverride, presetOverride) {
 
   if (sql.trim() === "") {
     const emptyPatchText =
-      "-- Paste a PostgreSQL migration (.sql) or Next.js/TypeScript route (.ts) to run offline invariant checks.";
-    if (!isReactMounted()) {
-      const container = getElSafe("findings-container");
-      const patchEl = getElSafe("patch-output");
-      if (container) {
-        container.innerHTML =
-          '<div class="finding-ok">0 Schema or RLS Vulnerabilities Found — Paste SQL or TypeScript route to audit</div>';
-      }
-      if (patchEl) patchEl.value = emptyPatchText;
-    }
+      "-- Paste a PostgreSQL migration (.sql), Drizzle/Prisma schema, or Next.js/TypeScript route (.ts) to run offline invariant checks.";
+    renderFindingsDom(
+      [],
+      "0 Schema or RLS Vulnerabilities Found — Paste SQL, Drizzle/Prisma schema, or TypeScript route to audit",
+      emptyPatchText
+    );
     const tEnd = typeof performance !== "undefined" && typeof performance.now === "function" ? performance.now() : 0;
     const lintMs = Math.max(1, Math.round(tEnd - tStart));
     commitState((next) => {
@@ -1172,159 +1768,257 @@ function runSqlLinter(codeOverride, presetOverride) {
         activePreset: presetOverride !== undefined ? presetOverride : next.linter.activePreset,
         sqlInput: sql,
         isCodeMode: false,
+        sourceKind: "sql",
         findings: [],
         patchOutput: emptyPatchText,
+        patchStep1Transactional: "",
+        patchStep2Concurrent: "",
         lintMs
       };
     });
     return;
   }
 
-  const cleanCode = stripJsCommentsPreserveLines(sql);
+  const jsStripped = stripJsCommentsPreserveLines(sql);
+  const cleanCode = jsStripped.cleaned;
   const codeDetectProbe = cleanCode.replace(/^\s*--[^\r\n]*/gm, " ");
+
+  const isPrismaMode =
+    /\bmodel\s+[A-Za-z_][A-Za-z0-9_]*\s*\{/.test(codeDetectProbe) &&
+    !/\bCREATE\s+TABLE\b/i.test(codeDetectProbe);
+  if (isPrismaMode) {
+    runPrismaSchemaAudit(sql, tStart, presetOverride);
+    return;
+  }
+
+  const hasDrizzlePgTable = /\bpgTable\s*\(/.test(codeDetectProbe);
   const isCodeMode =
-    /\b(?:export\s+(?:async\s+)?function|export\s+default\b|streamText\s*\(|generateText\s*\(|generateObject\s*\(|streamObject\s*\(|(?:req|request)\.json\s*\(|supabase\.from\s*\(|prisma\.)/.test(
+    hasDrizzlePgTable ||
+    /\b(?:export\s+(?:async\s+)?function|export\s+default\b|Deno\.serve\s*\(|streamText\s*\(|generateText\s*\(|generateObject\s*\(|streamObject\s*\(|(?:req|request)\.json\s*\(|supabase\.(?:from|rpc)\s*\(|prisma\.|db\.(?:update|insert|select|transaction)\s*\(|autumn\.(?:check|track)\s*\(|meterEvents\.create\s*\()/.test(
       codeDetectProbe
     );
 
   if (isCodeMode) {
-    const codeFindings = [];
+    const codeFindings = hasDrizzlePgTable ? collectDrizzleFindings(cleanCode, jsStripped.suppressedLines) : [];
+
+    const ormTargetLabel = /\bprisma\.[a-zA-Z0-9_$]+\.(?:update|upsert|create)/.test(cleanCode)
+      ? "prisma.wallet.update(...)"
+      : /\bdb\.(?:update|insert)\s*\(/.test(cleanCode)
+        ? "db.update(wallets).set(...)"
+        : "supabase.from('wallets').update(...)";
+
     const looksLikeStripeWebhook =
       /stripe-signature|constructEvent|verifyStripeWebhookSignature|webhooks\/stripe|stripe\.webhooks|checkout\.session\.completed|invoice\.(?:paid|payment_succeeded)|customer\.subscription|charge\.(?:refunded|dispute)|payment_intent\./i.test(
         cleanCode
       );
     if (
       looksLikeStripeWebhook &&
-      (/\b(req|request)\.json\s*\(\s*\)/.test(cleanCode) || !/constructEvent|verifyStripeWebhookSignature/.test(cleanCode))
+      (/\b(req|request)\.json\s*\(\s*\)/.test(cleanCode) ||
+        !/constructEvent|constructEventAsync|verifyStripeWebhookSignature|verifyHeader|handleRawWebhookHttp/.test(cleanCode))
     ) {
-      codeFindings.push({
-        sev: "CRITICAL",
-        title: "Webhook skips raw-body HMAC signature verification",
-        code: "AST 1 · MISSING_STRIPE_SIGNATURE_VERIFICATION",
-        table: "app/api/webhooks/stripe/route.ts",
-        line: lineOfPattern(cleanCode, /\b(?:req|request)\.json\s*\(|export\s+(?:default\s+)?(?:async\s+)?function/),
-        msg: "Webhook route parses req.json() or omits cryptographic Stripe-Signature HMAC verification, allowing forged invoice.paid payloads.",
-        diffRemove: "- const event = await req.json(); // Breaks raw HMAC body & skips Stripe-Signature check",
-        diffAdd: "+ const rawBody = await req.text(); verifyStripeWebhookSignature(rawBody, sig, secret);"
-      });
+      const ln = lineOfPattern(cleanCode, /\b(?:req|request)\.json\s*\(|export\s+(?:default\s+)?(?:async\s+)?function|Deno\.serve/);
+      if (!jsStripped.suppressedLines.has(ln)) {
+        codeFindings.push({
+          sev: "CRITICAL",
+          title: "Webhook skips raw-body HMAC signature verification",
+          code: "AST 1 · MISSING_STRIPE_SIGNATURE_VERIFICATION",
+          table: "app/api/webhooks/stripe/route.ts",
+          line: ln,
+          msg: "Webhook route parses req.json() or omits cryptographic Stripe-Signature HMAC verification, allowing forged invoice.paid payloads.",
+          diffRemove: "- const event = await req.json(); // Breaks raw HMAC body & skips Stripe-Signature check",
+          diffAdd: "+ const rawBody = await req.text(); stripe.webhooks.constructEvent(rawBody, sig, secret);"
+        });
+      }
     }
+
     if (
       /checkout\.session\.completed/.test(cleanCode) &&
       /invoice\.(paid|payment_succeeded)/.test(cleanCode) &&
-      !/canonical_grant_key|canonicalGrantKey/.test(cleanCode)
+      !/canonical_grant_key|canonicalGrantKey|settledGrantKeys|processWebhookEvent|apply_stripe_webhook_atomic/.test(cleanCode)
     ) {
-      codeFindings.push({
-        sev: "HIGH",
-        title: "Grants twice on signup without canonical invoice lock",
-        code: "AST 2 · DUAL_WEBHOOK_GRANT_WITHOUT_CANONICAL_LOCK",
-        table: "checkout.session.completed + invoice.paid",
-        line: lineOfPattern(cleanCode, /checkout\.session\.completed/),
-        msg: "Handles both checkout.session.completed and invoice.paid without canonical invoice_id deduplication (grants 2x credits on signup).",
-        diffRemove: "- if (event.type === 'checkout.session.completed' || event.type === 'invoice.paid') { ... }",
-        diffAdd: "+ canonicalGrantKey = `invoice:${event.invoiceId}`; // Dedupes cross-event parallel bursts"
-      });
+      const ln = lineOfPattern(cleanCode, /checkout\.session\.completed/);
+      if (!jsStripped.suppressedLines.has(ln)) {
+        codeFindings.push({
+          sev: "HIGH",
+          title: "Grants twice on signup without canonical invoice lock",
+          code: "AST 2 · DUAL_WEBHOOK_GRANT_WITHOUT_CANONICAL_LOCK",
+          table: "checkout.session.completed + invoice.paid",
+          line: ln,
+          msg: "Handles both checkout.session.completed and invoice.paid without canonical invoice_id deduplication (grants 2x credits on signup).",
+          diffRemove: "- if (event.type === 'checkout.session.completed' || event.type === 'invoice.paid') { ... }",
+          diffAdd: "+ canonicalGrantKey = `invoice:${event.invoiceId}`; // Dedupes cross-event parallel bursts"
+        });
+      }
     }
-    if (/\b(credits|credits_balance|balance)\s*:\s*[a-zA-Z0-9_$.]+\.(credits|credits_balance|balance)\s*[+-]/.test(cleanCode)) {
-      codeFindings.push({
-        sev: "CRITICAL",
-        title: "Non-atomic JS wallet balance read-modify-write",
-        code: "AST 3 · NON_ATOMIC_READ_MODIFY_WRITE_CREDITS",
-        table: "supabase.from('wallets').update(...)",
-        line: lineOfPattern(cleanCode, /\b(?:credits|credits_balance|balance)\s*:/),
-        msg: "Non-atomic JavaScript Read-Modify-Write credit mutation allows 20 concurrent requests to overwrite the same wallet balance.",
-        diffRemove: "- await supabase.from('wallets').update({ credits: wallet.credits + 1000 });",
-        diffAdd: "+ SELECT credits_balance FROM public.wallets WHERE user_id = $1 FOR UPDATE; // Row lock"
-      });
+
+    // AST 3: Catch camelCase creditsBalance, optional-chained (wallet?.x ?? 0), strict-TS wallet!.credits, +=/-=, and undeduped invoice.paid increment
+    const rmwDirectRe =
+      /\b(credits|credits_balance|creditsBalance|balance|token_quota|tokenQuota)\s*:\s*(?:\(\s*)?[a-zA-Z0-9_$.]+(?:\?\.|!\.|\.)(credits|credits_balance|creditsBalance|balance|token_quota|tokenQuota)(?:\s*\?\?\s*\d+\s*\))?\s*[+-]|\b[a-zA-Z0-9_$]+(?:\?\.|!\.|\.)(credits|credits_balance|creditsBalance|balance|token_quota|tokenQuota)\s*[+-]=/;
+    const hasWebhookEventDedup =
+      /\b(?:event\.id|stripe_event_id|stripeEventId|processed_stripe_events|creditTransaction\.create|creditTransactions|apply_stripe_webhook_atomic|handleRawWebhookHttp)\b/.test(
+        cleanCode
+      );
+    const unguardedIncrementRpcOrPrisma =
+      looksLikeStripeWebhook &&
+      /invoice\.(?:paid|payment_succeeded)|checkout\.session\.completed/.test(cleanCode) &&
+      !hasWebhookEventDedup &&
+      (/\.rpc\s*\(\s*['"`](?:increment|add|grant)[a-zA-Z0-9_]*['"`]/.test(cleanCode) ||
+        /\b(?:credits|creditsBalance|credits_balance|balance)\s*:\s*\{\s*increment\s*:/.test(cleanCode));
+
+    if (rmwDirectRe.test(cleanCode) || unguardedIncrementRpcOrPrisma) {
+      const ln = rmwDirectRe.test(cleanCode)
+        ? lineOfPattern(cleanCode, rmwDirectRe)
+        : lineOfPattern(cleanCode, /\.rpc\s*\(|\bincrement\s*:/);
+      if (!jsStripped.suppressedLines.has(ln)) {
+        codeFindings.push({
+          sev: "CRITICAL",
+          title: rmwDirectRe.test(cleanCode)
+            ? "Non-atomic JS wallet balance read-modify-write"
+            : "Webhook credit increment lacks stripe_event_id idempotency lock",
+          code: "AST 3 · NON_ATOMIC_READ_MODIFY_WRITE_CREDITS",
+          table: ormTargetLabel,
+          line: ln,
+          msg: rmwDirectRe.test(cleanCode)
+            ? "Non-atomic JavaScript Read-Modify-Write credit mutation allows concurrent requests to overwrite the same wallet balance."
+            : "Webhook increments credits via RPC/ORM without recording event.id inside the same atomic transaction.",
+          diffRemove: /\bprisma\./.test(cleanCode)
+            ? "- await prisma.wallet.update({ where: { userId }, data: { credits: wallet.credits + delta } });"
+            : /\bdb\.update/.test(cleanCode)
+              ? "- await db.update(wallets).set({ creditsBalance: wallet.creditsBalance + delta });"
+              : "- await supabase.from('wallets').update({ credits: wallet.credits + 1000 });",
+          diffAdd: /\bprisma\./.test(cleanCode)
+            ? "+ await prisma.$transaction([prisma.creditTransaction.create({ data: { stripeEventId: event.id, ... } }), prisma.wallet.update({ data: { credits: { increment: delta } } })]);"
+            : "+ SELECT credits_balance FROM public.wallets WHERE user_id = $1 FOR UPDATE; // Atomic row lock + event.id insert"
+        });
+      }
     }
-    if (
-      /\b(streamText|streamObject)\s*\(/.test(cleanCode) &&
-      /\bonFinish\b/.test(cleanCode) &&
-      !/reserveCreditsForStream|reserveStreamCredits|executeGuardedAiStream/.test(cleanCode)
-    ) {
-      codeFindings.push({
-        sev: "CRITICAL",
-        title: "Unreserved LLM stream deduction inside onFinish",
-        code: "AST 4 · UNRESERVED_STREAMING_LLM_DEDUCTION",
-        table: "streamText({ onFinish })",
-        line: lineOfPattern(cleanCode, /\b(?:streamText|streamObject)\s*\(/),
-        msg: "Deducts LLM credits inside onFinish without a Pre-Flight Hold Reservation. 50 parallel /api/chat requests will bypass the balance check before stream #1 finishes.",
-        diffRemove: "- return streamText({ model, onFinish: async ({ usage }) => deductCredits(usage) });",
-        diffAdd: "+ return watchdog.executeGuardedAiStream({ userId, estimatedMaxCredits: 100, streamExecutor });"
-      });
+
+    // Pre-flight hold recognition (Watchdog helpers, custom *Lease/*Quota/reserve*/hold* RPCs, and atomic autumn.check({ send_event: true }))
+    const hasAtomicAutumnCheck = /\bautumn\.check\s*\(\s*\{[\s\S]*?\bsend_event\s*:\s*true\b/.test(cleanCode);
+    const hasCustomOrWatchdogHold =
+      /\b(?:reserveCreditsForStream|reserveStreamCredits|executeGuardedAiStream|executeGuardedAiStreamSql|holdCredits|reserve_credits|reserve_stream_credits)\b/.test(
+        cleanCode
+      ) ||
+      /\b(?:reserve|hold|acquire|lock)[A-Za-z0-9_]*(?:Credit|Credits|Quota|Lease|Tokens|Balance)[A-Za-z0-9_]*\s*\(/i.test(
+        cleanCode
+      ) ||
+      /\.rpc\s*\(\s*['"`][^'"`]*(?:reserve|hold|lease|lock)[^'"`]*['"`]/i.test(cleanCode);
+
+    const hasPreFlightHold = hasCustomOrWatchdogHold || hasAtomicAutumnCheck;
+    const hasStreamingCall = /\b(streamText|streamObject)\s*\(/.test(cleanCode);
+    const hasDeferredStreamDeduction =
+      (/\bonFinish\s*:/.test(cleanCode) &&
+        /\b(?:update|rpc|deduct|consume|credits|creditsBalance|credits_balance|autumn\.track|meterEvents\.create)\b/.test(
+          cleanCode
+        )) ||
+      (/\bautumn\.check\s*\(\s*\{[\s\S]*?\bsend_event\s*:\s*false\b/.test(cleanCode));
+
+    if (hasStreamingCall && hasDeferredStreamDeduction && !hasPreFlightHold) {
+      const ln = lineOfPattern(cleanCode, /\b(?:streamText|streamObject)\s*\(/);
+      if (!jsStripped.suppressedLines.has(ln)) {
+        codeFindings.push({
+          sev: "CRITICAL",
+          title: "Unreserved LLM stream deduction inside onFinish",
+          code: "AST 4 · UNRESERVED_STREAMING_LLM_DEDUCTION",
+          table: "streamText({ onFinish })",
+          line: ln,
+          msg: "Deducts LLM credits or tracks meters inside onFinish without a Pre-Flight Hold Reservation. 50 parallel /api/chat requests will bypass the balance check before stream #1 finishes.",
+          diffRemove: "- return streamText({ model, onFinish: async ({ usage }) => deductCredits(usage) });",
+          diffAdd: "+ return executeGuardedAiStream({ userId, estimatedMaxCredits: 100, streamExecutor });"
+        });
+      }
     }
+
+    const hasCallerAuth =
+      /\b(?:getUser|getSession|getServerSession|currentUser|verifySession|requireAuthenticatedUser|requireUser|requireAuth|verifyToken|jwtVerify|clerkMiddleware)\s*\(|(?<![.\w$])auth\s*\(/.test(
+        cleanCode
+      );
+    const hasRateLimit = /\b(?:ratelimit|rateLimit|Ratelimit|rateLimiter)\b/.test(cleanCode);
     if (
       /\b(streamText|generateText|generateObject|streamObject)\s*\(/.test(cleanCode) &&
-      !/auth\.getUser|getServerSession|currentUser\s*\(|verifySession|requireAuthenticatedUser/.test(cleanCode)
+      (!hasCallerAuth || (!hasPreFlightHold && !hasRateLimit))
     ) {
-      codeFindings.push({
-        sev: "CRITICAL",
-        title: "AI route runs paid model without caller auth or hold",
-        code: "AST 5 · DENIAL_OF_WALLET_UNGUARDED_AI_ROUTE",
-        table: "POST /api/chat (LLM Endpoint)",
-        line: lineOfPattern(cleanCode, /\b(?:streamText|generateText|generateObject|streamObject)\s*\(/),
-        msg: "Invokes paid LLM inference without caller session authentication or pre-flight rate/wallet hold, enabling anonymous Denial-of-Wallet API spend.",
-        diffRemove: "- export async function POST(req: Request) { return streamText({ model: openai('gpt-4o') }); }",
-        diffAdd: "+ const user = await requireAuthenticatedUser(req); // + pre-flight credit hold & rate limit"
-      });
+      const ln = lineOfPattern(cleanCode, /\b(?:streamText|generateText|generateObject|streamObject)\s*\(/);
+      if (!jsStripped.suppressedLines.has(ln)) {
+        codeFindings.push({
+          sev: "CRITICAL",
+          title: "AI route runs paid model without caller auth or hold",
+          code: "AST 5 · DENIAL_OF_WALLET_UNGUARDED_AI_ROUTE",
+          table: "POST /api/chat (LLM Endpoint)",
+          line: ln,
+          msg: "Invokes paid LLM inference without caller session authentication or pre-flight rate/wallet hold, enabling anonymous Denial-of-Wallet API spend.",
+          diffRemove: "- export async function POST(req: Request) { return streamText({ model: openai('gpt-4o') }); }",
+          diffAdd: "+ const user = await requireAuthenticatedUser(req); // + pre-flight credit hold & rate limit"
+        });
+      }
     }
 
-    const patchOutputText = !isProLicenseUnlocked
-      ? [
-          "// Billing Watchdog AST Code Audit: " + codeFindings.length + " Next.js / Streaming LLM Vulnerability(s) Detected",
-          "//",
-          "// [REDACTED IN FREE DIAGNOSTIC MODE]",
-          "// Enter your BWV2-... Pro/Lifetime License Key above to unlock the drop-in Two-Phase Streaming Hold & Atomic Webhook route.ts blueprint."
-        ].join("\n")
-      : [
-          "// Billing Watchdog v2 — Hardened Next.js Webhook + Two-Phase Streaming Hold Blueprint",
-          "export async function POST(req: Request) {",
-          "  const rawBody = await req.text();",
-          "  const sig = req.headers.get('stripe-signature');",
-          "  const out = await watchdogFirewall.handleRawWebhookHttp(rawBody, sig);",
-          "  return new Response(JSON.stringify(out.body), { status: out.httpStatus });",
-          "}",
-          "// Pre-Flight Hold before streamText(): watchdogFirewall.reserveStreamCredits(...) -> commitStreamCredits(...)"
-        ].join("\n");
+    // AST 6: Floating-point money math (parseFloat OR / 100 division on cents/amounts)
+    const floatMathRe =
+      /\bparseFloat\s*\([^)]*(?:price|amount|cents|credit|balance|paid|total|usd|eur)[^)]*\)|\b(?:amount_paid|amount_total|amount_due|unit_amount|amountPaid|unitAmount|price_cents|amount_cents)\s*\/\s*100\b/i;
+    if (floatMathRe.test(cleanCode)) {
+      const ln = lineOfPattern(cleanCode, floatMathRe);
+      if (!jsStripped.suppressedLines.has(ln)) {
+        codeFindings.push({
+          sev: "HIGH",
+          title: "Floating-point money conversion risks IEEE-754 drift",
+          code: "AST 6 · FLOATING_POINT_MONEY_ARITHMETIC",
+          table: ormTargetLabel,
+          line: ln,
+          msg: "Uses parseFloat() or / 100 floating-point division on monetary or credit quantities instead of pure integer cents.",
+          diffRemove: "- const amount = parseFloat(event.amount_paid) / 100;",
+          diffAdd: "+ const amountCents = event.data.object.amount_paid; // Pure integer minor units"
+        });
+      }
+    }
 
-    if (!isReactMounted()) {
-      const container = getElSafe("findings-container");
-      const patchEl = getElSafe("patch-output");
-      if (container) {
-        if (codeFindings.length === 0) {
-          container.innerHTML =
-            '<div class="finding-ok">0 Next.js / Streaming LLM Route Vulnerabilities Found</div>';
-        } else {
-          container.innerHTML = codeFindings
-            .map(
-              (f) =>
-                '<div class="finding">' +
-                '<div class="finding-head"><span class="sev ' +
-                (f.sev === "HIGH" ? "sev-high" : "") +
-                '">' +
-                escapeHtmlSafe(f.sev) +
-                "</span><strong>" +
-                escapeHtmlSafe(f.code) +
-                '</strong> <span class="finding-table">(' +
-                escapeHtmlSafe(f.table) +
-                ")</span></div>" +
-                '<div class="finding-msg">' +
-                escapeHtmlSafe(f.msg) +
-                "</div>" +
-                '<div class="code-diff">' +
-                '<div class="diff-del">' +
-                escapeHtmlSafe(f.diffRemove) +
-                "</div>" +
-                '<div class="diff-add">' +
-                escapeHtmlSafe(f.diffAdd) +
-                "</div>" +
-                "</div>" +
-                "</div>"
-            )
-            .join("");
+    // AST 7: Stripe Billing v2 meterEvents.create without deterministic identifier idempotency key
+    const meterRe = /\bmeterEvents\.create\s*\(/g;
+    let meterMatch;
+    while ((meterMatch = meterRe.exec(cleanCode)) !== null) {
+      const openIdx = cleanCode.indexOf("(", meterMatch.index);
+      const argsParen = openIdx !== -1 ? extractBalancedParen(cleanCode, openIdx) : null;
+      if (argsParen && !/\bidentifier\s*:/.test(argsParen.expr)) {
+        const ln = lineAtOffset(cleanCode, meterMatch.index);
+        if (!jsStripped.suppressedLines.has(ln)) {
+          codeFindings.push({
+            sev: "CRITICAL",
+            title: "Stripe meterEvents.create omits deterministic identifier",
+            code: "AST 7 · UNIDEMPOTENT_STRIPE_METER_EVENT",
+            table: "stripe.billing.meterEvents.create(...)",
+            line: ln,
+            msg: "Post-paid Stripe Billing meter event omits a deterministic `identifier` idempotency key; network/queue retries will double-bill usage.",
+            diffRemove: "- await stripe.billing.meterEvents.create({ event_name: 'api_requests', payload });",
+            diffAdd: "+ await stripe.billing.meterEvents.create({ event_name: 'api_requests', identifier: `req_${requestId}`, payload });"
+          });
         }
       }
-      if (patchEl) patchEl.value = patchOutputText;
     }
+
+    const sourceKind = hasDrizzlePgTable && !looksLikeStripeWebhook && !hasStreamingCall ? "drizzle" : "ts";
+    const patchOutputText =
+      codeFindings.length === 0
+        ? "// 0 Next.js / ORM / Streaming LLM Vulnerabilities Found — All checked billing invariants passed."
+        : !isProLicenseUnlocked
+          ? [
+              "// Billing Watchdog AST Code Audit: " + codeFindings.length + " Next.js / ORM / Streaming Vulnerability(s) Detected",
+              "// Affected Targets: " + codeFindings.map((f) => f.table).join(" | "),
+              "//",
+              "// [REDACTED IN FREE DIAGNOSTIC MODE]",
+              "// Enter your BWV2E-... Pro/Lifetime/Agency License Key above to unlock the drop-in Postgres-backed Two-Phase Stream Hold & Atomic Webhook route.ts blueprint."
+            ].join("\n")
+          : [
+              "// Billing Watchdog v2.4.0 — Hardened Next.js Webhook + Postgres Two-Phase Streaming Hold Blueprint",
+              "export async function POST(req: Request) {",
+              "  const rawBody = await req.text();",
+              "  const sig = req.headers.get('stripe-signature');",
+              "  const out = await watchdogFirewall.handleRawWebhookHttp(rawBody, sig);",
+              "  return new Response(JSON.stringify(out.body), { status: out.httpStatus });",
+              "}",
+              "// Pre-Flight Hold before streamText(): executeGuardedAiStreamSql(pgPool, { userId, estimatedMaxCredits: 100, ... })"
+            ].join("\n");
+
+    renderFindingsDom(codeFindings, "0 Next.js / Streaming LLM Route Vulnerabilities Found", patchOutputText);
 
     const tEnd = typeof performance !== "undefined" && typeof performance.now === "function" ? performance.now() : 0;
     const lintMs = Math.max(1, Math.round(tEnd - tStart));
@@ -1333,114 +2027,313 @@ function runSqlLinter(codeOverride, presetOverride) {
         activePreset: presetOverride !== undefined ? presetOverride : next.linter.activePreset,
         sqlInput: sql,
         isCodeMode: true,
+        sourceKind,
         findings: codeFindings,
         patchOutput: patchOutputText,
+        patchStep1Transactional: isProLicenseUnlocked ? patchOutputText : "",
+        patchStep2Concurrent: "",
         lintMs
       };
     });
     return;
   }
 
-  const cleanSql = stripSqlCommentsPreserveLines(sql);
-  const statements = cleanSql
+  // =========================================================================
+  // RAW POSTGRESQL / SUPABASE SQL MODE (Schema-Aware & Supabase Studio-Safe)
+  // =========================================================================
+  const sqlStripped = stripSqlCommentsPreserveLines(sql);
+  const cleanSql = sqlStripped.cleaned;
+  const maskedTopLevelSql = maskDollarQuotedBodiesPreserveLines(cleanSql);
+  const statements = maskedTopLevelSql
     .split(";")
     .map((s) => s.replace(/\s+/g, " ").trim())
     .filter(Boolean);
 
+  // Parse all CREATE TABLE statements actually present in the pasted DDL
+  const parsedTables = [];
+  const parsedTableMap = new Map();
+  const createTableRe = /\bCREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?((?:"?[a-zA-Z0-9_]+"?\s*\.\s*)?"?[a-zA-Z0-9_]+"?)\s*\(/gi;
+  let ctm;
+  while ((ctm = createTableRe.exec(maskedTopLevelSql)) !== null) {
+    const qInfo = parseQualifiedSqlName(ctm[1]);
+    if (qInfo.schema.toLowerCase() !== "public") continue;
+    const lowerShort = qInfo.name.toLowerCase();
+    if (
+      lowerShort === "schema_migrations" ||
+      lowerShort === "_prisma_migrations" ||
+      lowerShort === "__drizzle_migrations" ||
+      lowerShort === "spatial_ref_sys"
+    ) {
+      continue;
+    }
+    const openParenIdx = maskedTopLevelSql.indexOf("(", ctm.index);
+    const bodyParen = openParenIdx !== -1 ? extractBalancedParen(maskedTopLevelSql, openParenIdx) : null;
+    const bodyText = bodyParen ? bodyParen.expr : "";
+    const tblEntry = {
+      schema: qInfo.schema,
+      name: qInfo.name,
+      qualifiedSql: qInfo.qualifiedSql,
+      safeIdentPrefix: qInfo.safeIdentPrefix,
+      body: bodyText,
+      line: lineAtOffset(cleanSql, ctm.index),
+      fullCreateStmt: bodyParen ? maskedTopLevelSql.slice(ctm.index, bodyParen.endIdx) : ctm[0]
+    };
+    parsedTables.push(tblEntry);
+    parsedTableMap.set(lowerShort, tblEntry);
+  }
+
   const findings = [];
-  const patchLines = [
-    "-- Billing Watchdog Auto-Generated Non-Blocking Remediation Patch",
-    "-- Safe for zero-downtime production execution on PostgreSQL / Supabase",
-    ""
-  ];
+  const step1Lines = [];
+  const step2Lines = [];
 
-  const hasCheckNonNeg = statements.some((stmt) => stmtHasNonNegativeBalanceCheck(stmt));
-  if (!hasCheckNonNeg) {
-    findings.push({
-      sev: "CRITICAL",
-      title: "Missing non-negative balance check constraint",
-      code: "CHECK 1 · MISSING_NON_NEGATIVE_CHECK",
-      table: "public.wallets (credits_balance)",
-      line: lineOfPattern(cleanSql, /CREATE\s+TABLE\s+(?:"?public"?\s*\.\s*)?"?wallets"?|credits_balance/i),
-      msg: "No CHECK (credits_balance >= 0) constraint found. Concurrent API requests can drive user credit balances negative.",
-      diffRemove: "-   credits_balance integer NOT NULL DEFAULT 50",
-      diffAdd: "+   credits_balance integer NOT NULL DEFAULT 50 CHECK (credits_balance >= 0)"
-    });
-    patchLines.push(
-      "-- 1. Enforce non-negative credit balance without locking concurrent reads:",
-      "ALTER TABLE public.wallets",
-      "  ADD CONSTRAINT wallets_credits_balance_non_negative_chk",
-      "  CHECK (credits_balance >= 0) NOT VALID;",
-      "ALTER TABLE public.wallets",
-      "  VALIDATE CONSTRAINT wallets_credits_balance_non_negative_chk;",
-      ""
-    );
+  // CHECK 1: Non-negative balance/credits/quota constraint ONLY on tables that actually define a balance/credit/quota state column!
+  const balanceColCandidateRe =
+    /^\s*"?(credits_balance|credits|credit_balance|balance|balance_cents|token_quota|tokens_balance|page_credits_balance|quota_balance|wallet_balance|available_credits)"?\s+(integer|int|int4|int8|bigint|smallint|numeric)\b([^\r\n,]*)/gim;
+  for (const tbl of parsedTables) {
+    balanceColCandidateRe.lastIndex = 0;
+    let bcm;
+    while ((bcm = balanceColCandidateRe.exec(tbl.body)) !== null) {
+      const colName = bcm[1];
+      const colType = bcm[2];
+      const colRest = (bcm[3] || "").trim();
+      const hasCheck =
+        stmtHasNonNegativeCheckForCol(tbl.fullCreateStmt, colName) ||
+        statements.some(
+          (stmt) =>
+            /\bALTER\s+TABLE\b/i.test(stmt) &&
+            new RegExp("\\b" + escapeRegExpSafe(tbl.name) + "\\b", "i").test(stmt) &&
+            stmtHasNonNegativeCheckForCol(stmt, colName)
+        );
+      if (!hasCheck) {
+        const colLine = lineOfPattern(
+          cleanSql,
+          new RegExp("\\b" + escapeRegExpSafe(colName) + "\\b", "i")
+        );
+        const sqlCol = formatSqlIdentifier(colName);
+        const chkName = tbl.safeIdentPrefix + "_" + colName.toLowerCase() + "_non_negative_chk";
+        findings.push({
+          sev: "CRITICAL",
+          title: "Missing non-negative balance check constraint",
+          code: "CHECK 1 · MISSING_NON_NEGATIVE_CHECK",
+          table: tbl.qualifiedSql + " (" + colName + ")",
+          line: colLine || tbl.line,
+          msg:
+            "Column " +
+            tbl.qualifiedSql +
+            "." +
+            colName +
+            " has no CHECK (" +
+            colName +
+            " >= 0) constraint. Concurrent API requests can drive balances negative.",
+          diffRemove: "-   " + colName + " " + colType + (colRest ? " " + colRest.replace(/,\s*$/, "") : ""),
+          diffAdd:
+            "+   " +
+            colName +
+            " " +
+            colType +
+            (colRest ? " " + colRest.replace(/,\s*$/, "") : "") +
+            " CHECK (" +
+            sqlCol +
+            " >= 0)"
+        });
+        if (isProLicenseUnlocked) {
+          step1Lines.push(
+            "-- Pre-flight diagnostic: confirm 0 existing negative rows before VALIDATE CONSTRAINT:",
+            "SELECT count(*) AS negative_rows_to_inspect FROM " + tbl.qualifiedSql + " WHERE " + sqlCol + " < 0;",
+            "ALTER TABLE " + tbl.qualifiedSql,
+            "  ADD CONSTRAINT " + chkName,
+            "  CHECK (" + sqlCol + " >= 0) NOT VALID;",
+            "ALTER TABLE " + tbl.qualifiedSql,
+            "  VALIDATE CONSTRAINT " + chkName + ";",
+            ""
+          );
+        }
+      }
+    }
   }
 
-  const hasUniqueEvent = statements.some(
-    (stmt) =>
-      /\bstripe_event_id"?\s+[^,)]*\bUNIQUE\b/i.test(stmt) ||
-      /\bUNIQUE\s*\([^)]*\bstripe_event_id\b[^)]*\)/i.test(stmt) ||
-      /\bUNIQUE\s+USING\s+INDEX\s+"?[a-zA-Z0-9_]*stripe_event_id[a-zA-Z0-9_]*"?/i.test(stmt) ||
-      (/\bCREATE\s+UNIQUE\s+INDEX\b/i.test(stmt) && /\bstripe_event_id\b/i.test(stmt))
-  );
-  if (!hasUniqueEvent) {
-    findings.push({
-      sev: "CRITICAL",
-      title: "Missing Stripe event idempotency key constraint",
-      code: "CHECK 2 · MISSING_WEBHOOK_UNIQUE_CONSTRAINT",
-      table: "public.credit_transactions (stripe_event_id)",
-      line: lineOfPattern(cleanSql, /stripe_event_id|credit_transactions/i),
-      msg: "Column stripe_event_id lacks a UNIQUE constraint. Parallel Stripe webhook retries (invoice.paid) will grant duplicate credits.",
-      diffRemove: "-   stripe_event_id text,",
-      diffAdd: "+   stripe_event_id text UNIQUE,"
-    });
-    patchLines.push(
-      "-- 2. Enforce Stripe webhook idempotency at the database boundary (zero-downtime CONCURRENTLY):",
-      "CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS credit_transactions_stripe_event_id_idx ON public.credit_transactions (stripe_event_id);",
-      "ALTER TABLE public.credit_transactions ADD CONSTRAINT credit_transactions_stripe_event_id_uq UNIQUE USING INDEX credit_transactions_stripe_event_id_idx;",
-      ""
-    );
+  // CHECK 2: Webhook event idempotency uniqueness ONLY on tables defining a webhook/Stripe event column!
+  // Recognizes inline UNIQUE, inline PRIMARY KEY, table UNIQUE(col)/PRIMARY KEY(col), ALTER TABLE UNIQUE, and non-partial CREATE UNIQUE INDEX!
+  const eventColCandidateRe =
+    /^\s*"?(stripe_event_id|stripeEventId|webhook_event_id|webhook_evt_id|event_id)"?\s+([a-zA-Z0-9_]+)([^\r\n]*)/gim;
+  for (const tbl of parsedTables) {
+    eventColCandidateRe.lastIndex = 0;
+    let ecm;
+    while ((ecm = eventColCandidateRe.exec(tbl.body)) !== null) {
+      const evCol = ecm[1];
+      const evType = ecm[2];
+      if (evCol.toLowerCase() === "event_id" && !/webhook|stripe|credit|ledger|transaction/i.test(tbl.name)) {
+        continue;
+      }
+      const escEv = escapeRegExpSafe(evCol);
+      const inlineUniqueOrPk = new RegExp(
+        "\"?" + escEv + "\"?\\s+[^,)]*\\b(?:UNIQUE|PRIMARY\\s+KEY)\\b",
+        "i"
+      ).test(tbl.body);
+      const tableLevelUniqueOrPk = new RegExp(
+        "\\b(?:UNIQUE|PRIMARY\\s+KEY)\\s*(?:NULLS\\s+(?:NOT\\s+)?DISTINCT\\s*)?\\(\\s*\"?" + escEv + "\"?\\s*\\)",
+        "i"
+      ).test(tbl.body);
+      const alterUnique = statements.some(
+        (stmt) =>
+          /\bALTER\s+TABLE\b/i.test(stmt) &&
+          new RegExp("\\b" + escapeRegExpSafe(tbl.name) + "\\b", "i").test(stmt) &&
+          (new RegExp("\\bUNIQUE\\s*\\(\\s*\"?" + escEv + "\"?\\s*\\)", "i").test(stmt) ||
+            new RegExp("\\bUNIQUE\\s+USING\\s+INDEX\\b", "i").test(stmt))
+      );
+      const unconditionalUniqueIdx = statements.some(
+        (stmt) =>
+          /\bCREATE\s+UNIQUE\s+INDEX\b/i.test(stmt) &&
+          new RegExp("\\bON\\s+(?:\"?" + escapeRegExpSafe(tbl.schema) + "\"?\\s*\\.\\s*)?\"?" + escapeRegExpSafe(tbl.name) + "\"?\\b", "i").test(stmt) &&
+          new RegExp("\\(\\s*\"?" + escEv + "\"?\\s*\\)", "i").test(stmt) &&
+          !/\bWHERE\b/i.test(stmt)
+      );
+
+      if (!inlineUniqueOrPk && !tableLevelUniqueOrPk && !alterUnique && !unconditionalUniqueIdx) {
+        const hasPartialIdx = statements.some(
+          (stmt) =>
+            /\bCREATE\s+UNIQUE\s+INDEX\b/i.test(stmt) &&
+            new RegExp("\\b" + escEv + "\\b", "i").test(stmt) &&
+            /\bWHERE\b/i.test(stmt)
+        );
+        const evLine = lineOfPattern(cleanSql, new RegExp("\\b" + escEv + "\\b", "i"));
+        const sqlEvCol = formatSqlIdentifier(evCol);
+        const idxName = tbl.safeIdentPrefix + "_" + evCol.toLowerCase() + "_uq_idx";
+        const uqName = tbl.safeIdentPrefix + "_" + evCol.toLowerCase() + "_uq";
+        findings.push({
+          sev: "CRITICAL",
+          title: hasPartialIdx
+            ? "Partial WHERE unique index breaks ON CONFLICT (stripe_event_id)"
+            : "Missing Stripe event idempotency key constraint",
+          code: "CHECK 2 · MISSING_WEBHOOK_UNIQUE_CONSTRAINT",
+          table: tbl.qualifiedSql + " (" + evCol + ")",
+          line: evLine || tbl.line,
+          msg: hasPartialIdx
+            ? "Partial unique index (WHERE " +
+              evCol +
+              " IS NOT NULL) cannot back PostgreSQL ON CONFLICT (" +
+              evCol +
+              ") without a predicate. Use an unconditional UNIQUE constraint or index."
+            : "Column " +
+              tbl.qualifiedSql +
+              "." +
+              evCol +
+              " lacks an unconditional UNIQUE or PRIMARY KEY constraint. Parallel Stripe webhook retries will grant duplicate credits.",
+          diffRemove: "-   " + evCol + " " + evType + ",",
+          diffAdd: "+   " + evCol + " " + evType + " UNIQUE,"
+        });
+        if (isProLicenseUnlocked) {
+          step2Lines.push(
+            "-- Run ALONE in Supabase SQL Editor (outside BEGIN/COMMIT so CONCURRENTLY never triggers ERROR: 25001):",
+            "CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS " +
+              idxName +
+              " ON " +
+              tbl.qualifiedSql +
+              " (" +
+              sqlEvCol +
+              ");",
+            "-- Optional: promote concurrent unique index to a named table constraint (instant metadata lock):",
+            "ALTER TABLE " + tbl.qualifiedSql + " ADD CONSTRAINT " + uqName + " UNIQUE USING INDEX " + idxName + ";",
+            ""
+          );
+        }
+      }
+    }
   }
 
-  const tables = ["public.users", "public.subscriptions", "public.wallets", "public.credit_transactions"];
+  // CHECK 3: Row-Level Security on ALL public tables actually created in the pasted DDL!
   const rlsMissing = [];
-  for (const tbl of tables) {
-    const shortName = tbl.split(".")[1];
-    const rlsRe = new RegExp(
+  for (const tbl of parsedTables) {
+    const escShort = escapeRegExpSafe(tbl.name);
+    const rlsEnableRe = new RegExp(
       "\\bALTER\\s+TABLE\\s+(?:IF\\s+EXISTS\\s+)?(?:ONLY\\s+)?(?:\"?public\"?\\s*\\.\\s*)?\"?" +
-        shortName +
+        escShort +
         "\"?\\s+ENABLE\\s+ROW\\s+LEVEL\\s+SECURITY\\b",
+      "i"
+    );
+    const rlsDisableRe = new RegExp(
+      "\\bALTER\\s+TABLE\\s+(?:IF\\s+EXISTS\\s+)?(?:ONLY\\s+)?(?:\"?public\"?\\s*\\.\\s*)?\"?" +
+        escShort +
+        "\"?\\s+DISABLE\\s+ROW\\s+LEVEL\\s+SECURITY\\b",
       "i"
     );
     const polRe = new RegExp(
       "\\bCREATE\\s+POLICY\\s+(?:IF\\s+NOT\\s+EXISTS\\s+)?(?:\"(?:[^\"]|\"\")+\"|[a-zA-Z0-9_]+)\\s+ON\\s+(?:\"?public\"?\\s*\\.\\s*)?\"?" +
-        shortName +
+        escShort +
         "\"?(?=\\s|$)",
       "i"
     );
-    const hasRls = statements.some((stmt) => rlsRe.test(stmt));
+    let lastEnable = -1;
+    let lastDisable = -1;
+    for (let sIdx = 0; sIdx < statements.length; sIdx++) {
+      if (rlsEnableRe.test(statements[sIdx])) lastEnable = sIdx;
+      if (rlsDisableRe.test(statements[sIdx])) lastDisable = sIdx;
+    }
+    const hasRls = lastEnable >= 0 && lastEnable > lastDisable;
     const hasPol = statements.some((stmt) => polRe.test(stmt));
-    if (!hasRls || !hasPol) rlsMissing.push(tbl);
+    if (!hasRls || !hasPol) {
+      rlsMissing.push({ tbl, hasRls, hasPol });
+    }
   }
   if (rlsMissing.length > 0) {
+    const firstMissing = rlsMissing[0].tbl;
+    const firstTenantExpr = inferTenantPolicyExprForTable(firstMissing);
     findings.push({
       sev: "HIGH",
-      title: "Row-Level Security missing on billing tables",
+      title: "Row-Level Security or tenant policy missing on public tables",
       code: "CHECK 3 · MISSING_RLS_OR_POLICY",
-      table: rlsMissing.join(", "),
-      line: lineOfPattern(cleanSql, /CREATE\s+TABLE/i),
-      msg: "Row-Level Security (ENABLE ROW LEVEL SECURITY + CREATE POLICY) is missing on " + rlsMissing.length + " billing table(s), exposing records to PostgREST / anon key queries.",
-      diffRemove: "- -- No ENABLE ROW LEVEL SECURITY / CREATE POLICY statements",
-      diffAdd: "+ ALTER TABLE public.wallets ENABLE ROW LEVEL SECURITY; CREATE POLICY wallets_isolation ON public.wallets FOR SELECT USING (auth.uid() = user_id);"
+      table: rlsMissing.map((m) => m.tbl.qualifiedSql).join(", "),
+      line: firstMissing.line,
+      msg:
+        "Row-Level Security (ENABLE ROW LEVEL SECURITY + tenant CREATE POLICY) is missing on " +
+        rlsMissing.length +
+        " table(s), exposing records to PostgREST / anon key queries.",
+      diffRemove: "- -- Missing ENABLE ROW LEVEL SECURITY / tenant CREATE POLICY on " + firstMissing.qualifiedSql,
+      diffAdd:
+        "+ ALTER TABLE " +
+        firstMissing.qualifiedSql +
+        " ENABLE ROW LEVEL SECURITY;\n+ CREATE POLICY " +
+        firstMissing.safeIdentPrefix +
+        "_tenant_select ON " +
+        firstMissing.qualifiedSql +
+        " FOR SELECT TO authenticated USING (" +
+        firstTenantExpr +
+        ");"
     });
-    patchLines.push("-- 3. Enable Row-Level Security (RLS) on exposed billing tables:");
-    for (const tbl of rlsMissing) {
-      patchLines.push("ALTER TABLE " + tbl + " ENABLE ROW LEVEL SECURITY;");
+    if (isProLicenseUnlocked) {
+      step1Lines.push("-- Enable Row-Level Security WITH explicit tenant policies (never 0-policy lockout):");
+      for (const item of rlsMissing) {
+        const tExpr = inferTenantPolicyExprForTable(item.tbl);
+        if (!item.hasRls) {
+          step1Lines.push("ALTER TABLE " + item.tbl.qualifiedSql + " ENABLE ROW LEVEL SECURITY;");
+        }
+        if (!item.hasPol) {
+          if (tExpr === "auth.role() = 'service_role'") {
+            step1Lines.push(
+              "CREATE POLICY " +
+                item.tbl.safeIdentPrefix +
+                "_service_only ON " +
+                item.tbl.qualifiedSql +
+                " FOR ALL TO service_role USING (true) WITH CHECK (true);"
+            );
+          } else {
+            step1Lines.push(
+              "CREATE POLICY " +
+                item.tbl.safeIdentPrefix +
+                "_tenant_select ON " +
+                item.tbl.qualifiedSql +
+                " FOR SELECT TO authenticated USING (" +
+                tExpr +
+                ");"
+            );
+          }
+        }
+      }
+      step1Lines.push("");
     }
-    patchLines.push("");
   }
 
+  // CHECK 4: Permissive or uncorrelated RLS policies (supports quoted names, is_org_member, and real DROP POLICY IF EXISTS)
   const policyHeaderRe =
     /\bCREATE\s+POLICY\s+(?:IF\s+NOT\s+EXISTS\s+)?("(?:[^"]|"")+"|[a-zA-Z0-9_]+)\s+ON\s+((?:"?[a-zA-Z0-9_]+"?\s*\.\s*)?"?[a-zA-Z0-9_]+"?)/gi;
   const badPolicies = [];
@@ -1460,122 +2353,247 @@ function runSqlLinter(codeOverride, presetOverride) {
       const h = headers[idx];
       const bodyEnd = idx + 1 < headers.length ? headers[idx + 1].headerStart : stmt.length;
       const clauseSlice = stmt.slice(h.bodyStart, bodyEnd);
+      if (/\bTO\s+service_role\b/i.test(clauseSlice)) continue;
+      const qTbl = parseQualifiedSqlName(h.polTable);
       const clauseKwRe = /\b(?:USING|WITH\s+CHECK)\b/gi;
       let km;
-      let flagged = false;
+      let badExpr = null;
       while ((km = clauseKwRe.exec(clauseSlice)) !== null) {
         const extracted = extractBalancedParen(clauseSlice, km.index + km[0].length);
-        if (extracted && isPermissivePolicyExpr(extracted.expr)) {
-          flagged = true;
+        if (extracted && isPermissiveOrUncorrelatedPolicyExpr(extracted.expr, qTbl.name)) {
+          badExpr = extracted.expr.trim();
           break;
         }
       }
-      if (flagged) {
-        badPolicies.push(h.polTable + " (" + h.polName + ")");
+      if (badExpr !== null) {
+        const tblMeta = parsedTableMap.get(qTbl.name.toLowerCase()) || null;
+        const polLine = lineOfPattern(cleanSql, new RegExp(escapeRegExpSafe(h.polName), "i"));
+        badPolicies.push({
+          rawPolName: h.polName,
+          quotedPolName: formatSqlPolicyName(h.polName),
+          qTbl,
+          tenantExpr: inferTenantPolicyExprForTable(tblMeta || { name: qTbl.name, body: "" }),
+          badExpr,
+          line: polLine
+        });
       }
     }
   }
   if (badPolicies.length > 0) {
+    const firstBad = badPolicies[0];
+    const replacementPolName = firstBad.qTbl.safeIdentPrefix + "_tenant_isolation";
     findings.push({
       sev: "CRITICAL",
-      title: "Permissive RLS policy allows cross-tenant access",
+      title: "Permissive or uncorrelated RLS policy leaks tenant rows",
       code: "CHECK 4 · RLS_PERMISSIVE_NO_TENANT_FILTER",
-      table: badPolicies.join(", "),
-      line: lineOfPattern(cleanSql, /(?:USING|WITH\s+CHECK)\s*\(\s*\(*\s*true\b|auth\.role\s*\(/i),
-      msg: "Permissive RLS policy allows cross-tenant reads/writes (USING (true) / WITH CHECK (true) or auth.role() = 'authenticated' without auth.uid() / auth.jwt() tenant isolation).",
-      diffRemove: "- CREATE POLICY wallets_open_read ON public.wallets FOR SELECT USING (true);",
-      diffAdd: "+ CREATE POLICY wallets_isolation ON public.wallets FOR SELECT USING (auth.uid() = user_id);"
+      table: badPolicies.map((bp) => bp.qTbl.qualifiedSql + " (" + bp.rawPolName + ")").join(", "),
+      line: firstBad.line,
+      msg:
+        "Permissive RLS policy allows cross-tenant reads/writes (USING (" +
+        firstBad.badExpr +
+        ") lacks correlated auth.uid() / auth.jwt() / is_org_member(org_id) tenant isolation).",
+      diffRemove:
+        "- CREATE POLICY " +
+        firstBad.rawPolName +
+        " ON " +
+        firstBad.qTbl.qualifiedSql +
+        " FOR SELECT USING (" +
+        firstBad.badExpr +
+        ");",
+      diffAdd:
+        "+ CREATE POLICY " +
+        replacementPolName +
+        " ON " +
+        firstBad.qTbl.qualifiedSql +
+        " FOR SELECT TO authenticated USING (" +
+        firstBad.tenantExpr +
+        ");\n+ DROP POLICY IF EXISTS " +
+        firstBad.quotedPolName +
+        " ON " +
+        firstBad.qTbl.qualifiedSql +
+        ";"
     });
-    patchLines.push(
-      "-- 4. Replace permissive RLS policies with strict auth.uid() tenant isolation:",
-      "-- DROP POLICY <policy_name> ON <table>; CREATE POLICY tenant_isolation ON <table> USING (auth.uid() = user_id);",
-      ""
-    );
+    if (isProLicenseUnlocked) {
+      step1Lines.push(
+        "-- Replace permissive RLS policies seamlessly (create tenant policy BEFORE dropping permissive policy):"
+      );
+      for (const bp of badPolicies) {
+        const repName = bp.qTbl.safeIdentPrefix + "_tenant_isolation";
+        step1Lines.push(
+          "CREATE POLICY " +
+            repName +
+            " ON " +
+            bp.qTbl.qualifiedSql +
+            " FOR SELECT TO authenticated USING (" +
+            bp.tenantExpr +
+            ");",
+          "DROP POLICY IF EXISTS " + bp.quotedPolName + " ON " + bp.qTbl.qualifiedSql + ";"
+        );
+      }
+      step1Lines.push("");
+    }
   }
 
-  const hasSecDef = statements.some((stmt) => /\bSECURITY\s+DEFINER\b/i.test(stmt));
-  if (hasSecDef) {
-    const hasSearchPath = statements.some((stmt) => /\bSET\s+search_path\s*=/i.test(stmt));
-    const fnIdx = cleanSql.search(/\bFUNCTION\b/i);
-    const hasAuthUidInFn = fnIdx !== -1 && /\bauth\.uid\s*\(/i.test(cleanSql.slice(fnIdx));
-    const hasRevokePublic = statements.some((stmt) =>
-      /\bREVOKE\s+(?:EXECUTE|ALL(?:\s+PRIVILEGES)?)\s+ON\s+FUNCTION\b/i.test(stmt) &&
-      /\bFROM\s+[^;]*?\bPUBLIC\b/i.test(stmt)
-    );
-    if (!hasSearchPath || (!hasAuthUidInFn && !hasRevokePublic)) {
+  // CHECK 5: Per-Function SECURITY DEFINER scoping (fixes file-global masking & catches target_org_id / organization_id / team_id!)
+  const fnRe =
+    /\bCREATE\s+(?:OR\s+REPLACE\s+)?FUNCTION\s+((?:"?[a-zA-Z0-9_]+"?\s*\.\s*)?"?[a-zA-Z0-9_]+"?)\s*\(([\s\S]*?)\)([\s\S]*?)(\$[a-zA-Z0-9_]*\$)([\s\S]*?)\4([^;]*)(?:;|$)/gi;
+  let fnm;
+  const globalRevokeAllFns = /\bREVOKE\s+(?:EXECUTE|ALL(?:\s+PRIVILEGES)?)\s+ON\s+ALL\s+FUNCTIONS\s+IN\s+SCHEMA\s+"?public"?\s+FROM\s+[^;]*\bPUBLIC\b/i.test(
+    maskedTopLevelSql
+  );
+  while ((fnm = fnRe.exec(cleanSql)) !== null) {
+    const fnQ = parseQualifiedSqlName(fnm[1]);
+    const argsText = fnm[2] || "";
+    const preBodyAttrs = fnm[3] || "";
+    const fnBody = fnm[5] || "";
+    const postBodyAttrs = fnm[6] || "";
+    const combinedAttrs = preBodyAttrs + " " + postBodyAttrs;
+    if (!/\bSECURITY\s+DEFINER\b/i.test(combinedAttrs)) continue;
+
+    const fnLine = lineAtOffset(cleanSql, fnm.index);
+    if (sqlStripped.suppressedLines.has(fnLine)) continue;
+
+    const escFnName = escapeRegExpSafe(fnQ.name);
+    const hasAlterSearchPath = new RegExp(
+      "\\bALTER\\s+FUNCTION\\s+(?:\"?public\"?\\s*\\.\\s*)?\"?" +
+        escFnName +
+        "\"?\\b[^;]*\\bSET\\s+search_path\\s*(?:=|\\bTO\\b)",
+      "i"
+    ).test(maskedTopLevelSql);
+    const hasSearchPath = /\bSET\s+search_path\s*(?:=|\bTO\b)/i.test(combinedAttrs) || hasAlterSearchPath;
+
+    const isTrigger = /\bRETURNS\s+trigger\b/i.test(combinedAttrs);
+    const callerParamMatch = /\b([a-zA-Z0-9_]*(?:user|tenant|org|organization|team|workspace)_id)\b/i.exec(argsText);
+    const acceptsCallerOwnerParam = Boolean(callerParamMatch);
+    const mutatesData = /\b(?:UPDATE|INSERT\s+INTO|DELETE\s+FROM)\b/i.test(fnBody);
+
+    const hasAuthInFn =
+      /\bauth\.(?:uid|jwt)\s*\(|\brequest\.jwt\.claim|\bcurrent_setting\s*\(\s*'request\.jwt\.claims'/i.test(fnBody);
+
+    // Check delegation to another tenant helper (e.g. can_view_org_billing calling is_org_member(p_org_id))
+    let delegatesToHelper = false;
+    const helperCallRe = /\b(?:public\s*\.\s*)?([a-zA-Z0-9_]+)\s*\(([^)]*)\)/g;
+    let hcm;
+    while ((hcm = helperCallRe.exec(fnBody)) !== null) {
+      const calledFn = hcm[1].toLowerCase();
+      if (
+        calledFn !== fnQ.name.toLowerCase() &&
+        /^(?:is_org_member|is_team_member|is_workspace_member|can_view_[a-z0-9_]+|can_access_[a-z0-9_]+|assert_org_[a-z0-9_]+)$/i.test(
+          calledFn
+        ) &&
+        hcm[2].trim().length > 0
+      ) {
+        delegatesToHelper = true;
+        break;
+      }
+    }
+
+    // If this function IS a membership helper taking a tenant param (e.g. is_org_member(p_org_id)), verify p_org_id is actually used in body!
+    const paramUnusedInHelper =
+      callerParamMatch &&
+      /^(?:is_org_member|is_team_member|is_workspace_member)$/i.test(fnQ.name) &&
+      !new RegExp("\\b" + escapeRegExpSafe(callerParamMatch[1]) + "\\b", "i").test(fnBody);
+
+    const hasRevokePublic =
+      globalRevokeAllFns ||
+      new RegExp(
+        "\\bREVOKE\\s+(?:EXECUTE|ALL(?:\\s+PRIVILEGES)?)\\s+ON\\s+FUNCTION\\s+(?:\"?public\"?\\s*\\.\\s*)?\"?" +
+          escFnName +
+          "\"?\\s*(?:\\([^;]*?\\))?\\s*FROM\\s+[^;]*\\bPUBLIC\\b",
+        "i"
+      ).test(maskedTopLevelSql);
+
+    const missingCallerGuard =
+      !isTrigger &&
+      ((acceptsCallerOwnerParam || mutatesData) && !hasAuthInFn && !delegatesToHelper && !hasRevokePublic) ||
+      Boolean(paramUnusedInHelper);
+
+    if (!hasSearchPath || missingCallerGuard) {
+      const paramHint = callerParamMatch ? callerParamMatch[1] : "target_id";
       findings.push({
         sev: "CRITICAL",
-        title: "Unpinned SECURITY DEFINER RPC allows privilege escalation",
+        title: !hasSearchPath
+          ? "Unpinned SECURITY DEFINER RPC missing SET search_path"
+          : paramUnusedInHelper
+            ? "SECURITY DEFINER helper ignores tenant parameter " + paramHint
+            : "SECURITY DEFINER RPC allows cross-tenant IDOR escalation",
         code: "CHECK 5 · SECURITY_DEFINER_WITHOUT_AUTH_OR_SEARCH_PATH",
-        table: "SECURITY DEFINER RPC",
-        line: lineOfPattern(cleanSql, /SECURITY\s+DEFINER/i),
-        msg: "SECURITY DEFINER function bypasses RLS without SET search_path = public, pg_temp or explicit auth.uid() / REVOKE EXECUTE FROM PUBLIC caller isolation (privilege escalation / IDOR risk).",
-        diffRemove: "- RETURNS void LANGUAGE plpgsql SECURITY DEFINER AS $",
-        diffAdd: "+ RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $ -- + IF auth.uid() IS DISTINCT FROM target_user_id THEN RAISE EXCEPTION 'forbidden'; END IF;"
+        table: fnQ.qualifiedSql + "()",
+        line: fnLine,
+        msg:
+          "Function " +
+          fnQ.qualifiedSql +
+          "() runs as SECURITY DEFINER " +
+          (!hasSearchPath ? "without SET search_path = public, pg_temp " : "") +
+          (missingCallerGuard
+            ? "and accepts/mutates tenant state (" +
+              paramHint +
+              ") without auth.uid()/auth.jwt() verification or REVOKE EXECUTE FROM PUBLIC."
+            : "."),
+        diffRemove: "- CREATE OR REPLACE FUNCTION " + fnQ.qualifiedSql + "(" + argsText.trim() + ") ... SECURITY DEFINER",
+        diffAdd:
+          "+ ALTER FUNCTION " +
+          fnQ.qualifiedSql +
+          " SET search_path = public, pg_temp;\n+ REVOKE ALL ON FUNCTION " +
+          fnQ.qualifiedSql +
+          " FROM PUBLIC, anon;"
       });
-      patchLines.push(
-        "-- 5. Pin search_path and enforce auth.uid() or REVOKE FROM PUBLIC on SECURITY DEFINER RPCs:",
-        "-- ALTER FUNCTION public.<fn_name> SET search_path = public, pg_temp;",
-        ""
-      );
+      if (isProLicenseUnlocked) {
+        step1Lines.push(
+          "-- Lock down SECURITY DEFINER RPC " + fnQ.qualifiedSql + "():",
+          "ALTER FUNCTION " + fnQ.qualifiedSql + " SET search_path = public, pg_temp;",
+          "REVOKE ALL ON FUNCTION " + fnQ.qualifiedSql + " FROM PUBLIC, anon;",
+          ""
+        );
+      }
     }
   }
 
   let patchOutputText = "";
+  let step1Text = "";
+  let step2Text = "";
+
   if (findings.length === 0) {
     patchOutputText =
-      "-- All Group A schema invariants (CHECK >= 0, UNIQUE(stripe_event_id), and RLS policies) are present.\n-- No SQL remediation patch required.";
+      "-- All Group A schema invariants (CHECK >= 0, unconditional webhook uniqueness, per-table RLS, and SECURITY DEFINER guards) passed.\n-- No SQL remediation patch required.";
   } else if (!isProLicenseUnlocked) {
     patchOutputText = [
       "-- Billing Watchdog Diagnostic Summary: " + findings.length + " Schema/RLS Vulnerability(s) Detected",
       "-- Affected Objects: " + findings.map((f) => f.table).join(" | "),
       "--",
       "-- [REDACTED IN FREE DIAGNOSTIC MODE]",
-      "-- Enter your BWV2-... Pro/Lifetime License Key above (or purchase Pro $49/mo / Lifetime $149 below)",
-      "-- to unlock the zero-downtime NOT VALID + VALIDATE CONSTRAINT + CREATE UNIQUE INDEX CONCURRENTLY remediation script."
+      "-- Enter your BWV2E-... Pro/Lifetime/Agency License Key above (or purchase Pro $49/mo, Lifetime $149, or Agency $299 below)",
+      "-- to unlock the Supabase Studio-safe Step 1 (Transactional DDL) + Step 2 (Non-Transactional CONCURRENTLY) SQL scripts."
     ].join("\n");
   } else {
-    patchOutputText = patchLines.join("\n").trimEnd();
+    if (step1Lines.length > 0) {
+      step1Text = [
+        "-- === STEP 1: TRANSACTIONAL DDL (Safe to run directly in Supabase SQL Editor) ===",
+        "BEGIN;",
+        "",
+        ...step1Lines,
+        "COMMIT;"
+      ]
+        .join("\n")
+        .replace(/\n{3,}/g, "\n\n")
+        .trim();
+    }
+    if (step2Lines.length > 0) {
+      step2Text = [
+        "-- === STEP 2: NON-TRANSACTIONAL INDEX (Run ALONE in a separate Supabase SQL Editor query — avoids PostgreSQL ERROR: 25001) ===",
+        ...step2Lines
+      ]
+        .join("\n")
+        .trim();
+    }
+    patchOutputText = [step1Text, step2Text].filter(Boolean).join("\n\n");
   }
 
-  if (!isReactMounted()) {
-    const container = getElSafe("findings-container");
-    const patchEl = getElSafe("patch-output");
-    if (container) {
-      if (findings.length === 0) {
-        container.innerHTML = '<div class="finding-ok">0 Schema or RLS Vulnerabilities Found — All Group A Database Invariants Passed</div>';
-      } else {
-        container.innerHTML = findings
-          .map(
-            (f) =>
-              '<div class="finding">' +
-              '<div class="finding-head"><span class="sev ' +
-              (f.sev === "HIGH" ? "sev-high" : "") +
-              '">' +
-              escapeHtmlSafe(f.sev) +
-              "</span><strong>" +
-              escapeHtmlSafe(f.code) +
-              '</strong> <span class="finding-table">(' +
-              escapeHtmlSafe(f.table) +
-              ")</span></div>" +
-              '<div class="finding-msg">' +
-              escapeHtmlSafe(f.msg) +
-              "</div>" +
-              '<div class="code-diff">' +
-              '<div class="diff-del">' +
-              escapeHtmlSafe(f.diffRemove) +
-              "</div>" +
-              '<div class="diff-add">' +
-              escapeHtmlSafe(f.diffAdd) +
-              "</div>" +
-              "</div>" +
-              "</div>"
-          )
-          .join("");
-      }
-    }
-    if (patchEl) patchEl.value = patchOutputText;
-  }
+  renderFindingsDom(
+    findings,
+    "0 Schema or RLS Vulnerabilities Found — All Group A Database Invariants Passed",
+    patchOutputText
+  );
 
   const tEnd = typeof performance !== "undefined" && typeof performance.now === "function" ? performance.now() : 0;
   const lintMs = Math.max(1, Math.round(tEnd - tStart));
@@ -1584,16 +2602,19 @@ function runSqlLinter(codeOverride, presetOverride) {
       activePreset: presetOverride !== undefined ? presetOverride : next.linter.activePreset,
       sqlInput: sql,
       isCodeMode: false,
+      sourceKind: "sql",
       findings,
       patchOutput: patchOutputText,
+      patchStep1Transactional: step1Text,
+      patchStep2Concurrent: step2Text,
       lintMs
     };
   });
 }
 
-function copyPatch() {
+function copyPatch(stepFilter) {
   if (!isProLicenseUnlocked) {
-    const msg = "Pro / Lifetime License Required to copy production SQL remediation patch.";
+    const msg = "Pro / Lifetime / Agency License Required to copy production SQL remediation patch.";
     const html = 'Status: <strong class="status-warn">' + msg + "</strong>";
     commitState((next) => {
       next.licenseStatusKind = "warn";
@@ -1606,7 +2627,12 @@ function copyPatch() {
     return false;
   }
   const el = !isReactMounted() ? getElSafe("patch-output") : null;
-  const textToCopy = el && el.value ? el.value : __state.linter.patchOutput;
+  let textToCopy = el && el.value ? el.value : __state.linter.patchOutput;
+  if (stepFilter === 1 && __state.linter.patchStep1Transactional) {
+    textToCopy = __state.linter.patchStep1Transactional;
+  } else if (stepFilter === 2 && __state.linter.patchStep2Concurrent) {
+    textToCopy = __state.linter.patchStep2Concurrent;
+  }
   if (el && typeof el.select === "function") el.select();
   if (typeof navigator !== "undefined" && navigator.clipboard && typeof navigator.clipboard.writeText === "function") {
     navigator.clipboard.writeText(textToCopy);
@@ -1616,7 +2642,7 @@ function copyPatch() {
 
 function downloadPatch() {
   if (!isProLicenseUnlocked) {
-    const msg = "Pro / Lifetime License Required to download remediation.sql.";
+    const msg = "Pro / Lifetime / Agency License Required to download remediation.sql.";
     const html = 'Status: <strong class="status-warn">' + msg + "</strong>";
     commitState((next) => {
       next.licenseStatusKind = "warn";
@@ -1642,6 +2668,399 @@ function downloadPatch() {
   return true;
 }
 
+// ============================================================================
+// TAB 03: Client-Side CSV / JSON Zombie & Subscription Diff Reconciler (0-Egress)
+// ============================================================================
+
+function parseCsvRecordsInMemory(rawCsv) {
+  const rows = [];
+  let row = [];
+  let field = "";
+  let inQuotes = false;
+  const s = String(rawCsv || "").replace(/^\uFEFF/, "");
+
+  for (let i = 0; i < s.length; i++) {
+    const ch = s[i];
+    if (inQuotes) {
+      if (ch === '"' && s[i + 1] === '"') {
+        field += '"';
+        i++;
+      } else if (ch === '"') {
+        inQuotes = false;
+      } else {
+        field += ch;
+      }
+      continue;
+    }
+    if (ch === '"') {
+      inQuotes = true;
+    } else if (ch === ",") {
+      row.push(field.trim());
+      field = "";
+    } else if (ch === "\r" || ch === "\n") {
+      if (ch === "\r" && s[i + 1] === "\n") i++;
+      row.push(field.trim());
+      field = "";
+      if (row.some((cell) => cell !== "")) rows.push(row);
+      row = [];
+    } else {
+      field += ch;
+    }
+  }
+  row.push(field.trim());
+  if (row.some((cell) => cell !== "")) rows.push(row);
+
+  if (rows.length < 2) return [];
+  const headers = rows[0].map((h) => h.trim());
+  const out = [];
+  for (let r = 1; r < rows.length; r++) {
+    const obj = {};
+    for (let c = 0; c < headers.length; c++) {
+      if (headers[c]) obj[headers[c]] = rows[r][c] !== undefined ? rows[r][c] : "";
+    }
+    out.push(obj);
+  }
+  return out;
+}
+
+function parseSubscriptionDatasetInMemory(rawInput) {
+  const trimmed = String(rawInput || "").trim();
+  if (!trimmed) return [];
+  if (trimmed.startsWith("[") || trimmed.startsWith("{")) {
+    const parsed = JSON.parse(trimmed);
+    if (Array.isArray(parsed)) return parsed;
+    if (parsed && Array.isArray(parsed.data)) return parsed.data;
+    if (parsed && Array.isArray(parsed.subscriptions)) return parsed.subscriptions;
+    throw new Error("JSON input must be an array of subscription objects or a Stripe { data: [...] } list.");
+  }
+  return parseCsvRecordsInMemory(trimmed);
+}
+
+function parseStrictIntegerCentsValue(rawVal) {
+  if (rawVal === undefined || rawVal === null || rawVal === "") return null;
+  if (typeof rawVal === "number") {
+    return Number.isSafeInteger(rawVal) && rawVal >= 0 ? rawVal : null;
+  }
+  const str = String(rawVal).trim().replace(/^[$€£]\s*/, "").replace(/,/g, "");
+  if (/^\d+$/.test(str)) {
+    const n = parseInt(str, 10);
+    return Number.isSafeInteger(n) ? n : null;
+  }
+  // Support formatted major.minor string (e.g. "99.00") via pure integer string math (ZERO floats!)
+  const decMatch = /^(\d+)\.(\d{2})$/.exec(str);
+  if (decMatch) {
+    const major = parseInt(decMatch[1], 10);
+    const minor = parseInt(decMatch[2], 10);
+    const total = major * 100 + minor;
+    return Number.isSafeInteger(total) ? total : null;
+  }
+  return null;
+}
+
+function extractStripeUnitAmountCents(rec) {
+  if (!rec || typeof rec !== "object") return null;
+  const directCandidates = [
+    rec.unit_amount,
+    rec.unitAmount,
+    rec.plan_amount,
+    rec.planAmount,
+    rec.amount_cents,
+    rec.amountCents,
+    rec.amount,
+    rec["plan.amount"]
+  ];
+  for (const cand of directCandidates) {
+    const parsed = parseStrictIntegerCentsValue(cand);
+    if (parsed !== null) {
+      const qtyRaw = rec.quantity !== undefined ? parseInt(String(rec.quantity), 10) : 1;
+      const qty = Number.isSafeInteger(qtyRaw) && qtyRaw > 0 ? qtyRaw : 1;
+      return parsed * qty;
+    }
+  }
+  if (rec.plan && typeof rec.plan === "object") {
+    const pAmt = parseStrictIntegerCentsValue(rec.plan.amount !== undefined ? rec.plan.amount : rec.plan.unit_amount);
+    if (pAmt !== null) {
+      const qtyRaw = rec.quantity !== undefined ? parseInt(String(rec.quantity), 10) : 1;
+      return pAmt * (Number.isSafeInteger(qtyRaw) && qtyRaw > 0 ? qtyRaw : 1);
+    }
+  }
+  if (rec.items && Array.isArray(rec.items.data) && rec.items.data.length > 0) {
+    let sumCents = 0;
+    let foundAny = false;
+    for (const item of rec.items.data) {
+      const priceObj = item && item.price ? item.price : item && item.plan ? item.plan : null;
+      const uAmt = priceObj
+        ? parseStrictIntegerCentsValue(priceObj.unit_amount !== undefined ? priceObj.unit_amount : priceObj.amount)
+        : null;
+      if (uAmt !== null) {
+        const q = item.quantity !== undefined ? parseInt(String(item.quantity), 10) : 1;
+        sumCents += uAmt * (Number.isSafeInteger(q) && q > 0 ? q : 1);
+        foundAny = true;
+      }
+    }
+    if (foundAny) return sumCents;
+  }
+  return null;
+}
+
+function sanitizeSqlLiteralValue(val) {
+  return String(val || "").replace(/[^a-zA-Z0-9_:@.-]/g, "");
+}
+
+function runSubscriptionDiffReconciler(stripeRawOverride, dbRawOverride) {
+  const stripeInput =
+    stripeRawOverride !== undefined
+      ? String(stripeRawOverride)
+      : __state.reconciler.diff
+        ? __state.reconciler.diff.stripeInput
+        : SAMPLE_STRIPE_SUBS_CSV;
+  const dbInput =
+    dbRawOverride !== undefined
+      ? String(dbRawOverride)
+      : __state.reconciler.diff
+        ? __state.reconciler.diff.dbInput
+        : SAMPLE_DB_SUBS_CSV;
+
+  try {
+    const stripeRecords = parseSubscriptionDatasetInMemory(stripeInput);
+    const dbRecords = parseSubscriptionDatasetInMemory(dbInput);
+
+    const stripeMap = new Map();
+    for (const sRec of stripeRecords) {
+      if (!sRec || typeof sRec !== "object") continue;
+      const subId = String(
+        sRec.id || sRec.stripe_subscription_id || sRec.subscription_id || sRec.stripeSubscriptionId || ""
+      ).trim();
+      if (!subId) continue;
+      const status = String(sRec.status || "").trim().toLowerCase();
+      const customer = String(sRec.customer || sRec.customer_id || sRec.stripe_customer_id || "").trim();
+      const currency = String(sRec.currency || "usd").trim().toUpperCase();
+      const unitAmountCents = extractStripeUnitAmountCents(sRec);
+      stripeMap.set(subId, { subId, status, customer, currency, unitAmountCents });
+    }
+
+    let detectedSubIdCol = "stripe_subscription_id";
+    let detectedOwnerCol = "user_id";
+    if (dbRecords.length > 0 && typeof dbRecords[0] === "object") {
+      const firstKeys = Object.keys(dbRecords[0]);
+      if (firstKeys.includes("stripe_subscription_id")) detectedSubIdCol = "stripe_subscription_id";
+      else if (firstKeys.includes("subscription_id")) detectedSubIdCol = "subscription_id";
+      else if (firstKeys.includes("id")) detectedSubIdCol = "id";
+
+      if (firstKeys.includes("org_id")) detectedOwnerCol = "org_id";
+      else if (firstKeys.includes("organization_id")) detectedOwnerCol = "organization_id";
+      else if (firstKeys.includes("user_id")) detectedOwnerCol = "user_id";
+      else if (firstKeys.includes("customer_id")) detectedOwnerCol = "customer_id";
+    }
+
+    const diffRows = [];
+    let zombieCount = 0;
+    let missingInStripeCount = 0;
+    let pastDueGraceCount = 0;
+    let totalMonthlyBleedCents = 0;
+    const actionableSubIds = [];
+
+    for (const dRec of dbRecords) {
+      if (!dRec || typeof dRec !== "object") continue;
+      const subId = String(
+        dRec.stripe_subscription_id || dRec.subscription_id || dRec.stripeSubscriptionId || dRec.id || ""
+      ).trim();
+      if (!subId) continue;
+      const dbStatus = String(dRec.status || dRec.subscription_status || "").trim().toLowerCase();
+      const ownerId = String(
+        dRec.user_id || dRec.org_id || dRec.organization_id || dRec.userId || dRec.orgId || dRec.customer_id || "unknown_owner"
+      ).trim();
+      const dbAmountCents = extractStripeUnitAmountCents(dRec);
+
+      if (dbStatus !== "active" && dbStatus !== "trialing") continue;
+
+      const stripeTruth = stripeMap.get(subId);
+      if (!stripeTruth) {
+        const bleedCents = dbAmountCents !== null ? dbAmountCents : 2900;
+        missingInStripeCount++;
+        totalMonthlyBleedCents += bleedCents;
+        actionableSubIds.push(subId);
+        diffRows.push({
+          classification: "MISSING_IN_STRIPE",
+          subId,
+          ownerId,
+          dbStatus,
+          stripeStatus: "MISSING (404)",
+          monthlyBleedCents: bleedCents,
+          currency: "USD"
+        });
+        continue;
+      }
+
+      if (
+        stripeTruth.status === "canceled" ||
+        stripeTruth.status === "unpaid" ||
+        stripeTruth.status === "incomplete_expired" ||
+        stripeTruth.status === "paused"
+      ) {
+        const bleedCents =
+          stripeTruth.unitAmountCents !== null
+            ? stripeTruth.unitAmountCents
+            : dbAmountCents !== null
+              ? dbAmountCents
+              : 2900;
+        zombieCount++;
+        totalMonthlyBleedCents += bleedCents;
+        actionableSubIds.push(subId);
+        diffRows.push({
+          classification: "ZOMBIE_SUBSCRIPTION",
+          subId,
+          ownerId,
+          dbStatus,
+          stripeStatus: stripeTruth.status,
+          monthlyBleedCents: bleedCents,
+          currency: stripeTruth.currency
+        });
+      } else if (stripeTruth.status === "past_due") {
+        const graceExposureCents =
+          stripeTruth.unitAmountCents !== null
+            ? stripeTruth.unitAmountCents
+            : dbAmountCents !== null
+              ? dbAmountCents
+              : 2900;
+        pastDueGraceCount++;
+        diffRows.push({
+          classification: "PAST_DUE_GRACE",
+          subId,
+          ownerId,
+          dbStatus,
+          stripeStatus: "past_due",
+          monthlyBleedCents: graceExposureCents,
+          currency: stripeTruth.currency
+        });
+      }
+    }
+
+    const safeSubLiterals = actionableSubIds.map((id) => "'" + sanitizeSqlLiteralValue(id) + "'").join(", ");
+    const dryRunSelectSql =
+      actionableSubIds.length === 0
+        ? "-- 0 active zombie or missing subscriptions detected between Stripe and Postgres exports."
+        : [
+            "-- Step 1 (Read-Only Dry-Run Verification): Confirm exact zombie rows before mutating",
+            "SELECT " + detectedOwnerCol + ", " + detectedSubIdCol + ", status",
+            "FROM public.subscriptions",
+            "WHERE " + detectedSubIdCol + " IN (" + safeSubLiterals + ")",
+            "  AND status IN ('active', 'trialing');"
+          ].join("\n");
+
+    const remediationSql =
+      actionableSubIds.length === 0
+        ? dryRunSelectSql
+        : !isProLicenseUnlocked
+          ? [
+              "-- Emergency Zombie Diff Summary: " +
+                zombieCount +
+                " ZOMBIE_SUBSCRIPTION + " +
+                missingInStripeCount +
+                " MISSING_IN_STRIPE (" +
+                pastDueGraceCount +
+                " PAST_DUE_GRACE)",
+              "-- Measured Monthly Compute/Entitlement Bleed: " +
+                formatUsdFromCents(totalMonthlyBleedCents) +
+                "/mo (" +
+                totalMonthlyBleedCents +
+                " integer cents)",
+              "",
+              dryRunSelectSql,
+              "",
+              "-- [REDACTED IN FREE DIAGNOSTIC MODE]",
+              "-- Enter your BWV2E-... Pro/Lifetime/Agency License Key above to unlock the transactional zombie subscription cut-off SQL script."
+            ].join("\n")
+          : [
+              "-- Billing Watchdog v2.4.0 — Emergency Zombie Subscription Cut-Off (0-Egress Client-Side Diff)",
+              "-- Total Monthly Bleed Stopped: " +
+                formatUsdFromCents(totalMonthlyBleedCents) +
+                "/mo (" +
+                totalMonthlyBleedCents +
+                " integer cents)",
+              "",
+              dryRunSelectSql,
+              "",
+              "-- Step 2 (Transactional Cut-Off — maps both canceled zombies and MISSING_IN_STRIPE safely to 'canceled'):",
+              "BEGIN;",
+              "UPDATE public.subscriptions",
+              "SET status = 'canceled'",
+              "WHERE " + detectedSubIdCol + " IN (" + safeSubLiterals + ")",
+              "  AND status IN ('active', 'trialing');",
+              "COMMIT;"
+            ].join("\n");
+
+    const resultObj = {
+      stripeInput,
+      dbInput,
+      stripeRowsCount: stripeRecords.length,
+      dbRowsCount: dbRecords.length,
+      rows: diffRows,
+      zombieCount,
+      missingInStripeCount,
+      pastDueGraceCount,
+      totalMonthlyBleedCents,
+      dryRunSelectSql,
+      remediationSql,
+      parseError: null
+    };
+
+    commitState((next) => {
+      next.reconciler = Object.assign({}, next.reconciler, {
+        diff: resultObj
+      });
+    });
+    return resultObj;
+  } catch (err) {
+    const errMsg = err && err.message ? String(err.message) : "Failed to parse CSV/JSON input.";
+    const errObj = {
+      stripeInput,
+      dbInput,
+      stripeRowsCount: 0,
+      dbRowsCount: 0,
+      rows: [],
+      zombieCount: 0,
+      missingInStripeCount: 0,
+      pastDueGraceCount: 0,
+      totalMonthlyBleedCents: 0,
+      dryRunSelectSql: "",
+      remediationSql: "-- Parse Error: " + errMsg,
+      parseError: errMsg
+    };
+    commitState((next) => {
+      next.reconciler = Object.assign({}, next.reconciler, {
+        diff: errObj
+      });
+    });
+    return errObj;
+  }
+}
+
+function loadSampleZombieDiff() {
+  return runSubscriptionDiffReconciler(SAMPLE_STRIPE_SUBS_CSV, SAMPLE_DB_SUBS_CSV);
+}
+
+function copyDiffSql() {
+  if (!isProLicenseUnlocked) {
+    const msg = "Pro / Lifetime / Agency License Required to copy executable Zombie Cut-Off SQL.";
+    const html = 'Status: <strong class="status-warn">' + msg + "</strong>";
+    commitState((next) => {
+      next.licenseStatusKind = "warn";
+      next.licenseStatusText = msg;
+      next.licenseStatusHtml = html;
+      next.polarNotice = null;
+      next.licenseDrawerOpen = true;
+    });
+    updateLicenseDom(html, "PRO LICENSE REQUIRED", false);
+    return false;
+  }
+  const textToCopy = __state.reconciler.diff ? __state.reconciler.diff.remediationSql : "";
+  if (typeof navigator !== "undefined" && navigator.clipboard && typeof navigator.clipboard.writeText === "function") {
+    navigator.clipboard.writeText(textToCopy);
+  }
+  return true;
+}
+
 function toggleGroupBDemo() {
   const reportText = [
     "# Billing Integrity & Reconciliation Diagnostic Report (Demo Fixture Run)",
@@ -1654,7 +3073,7 @@ function toggleGroupBDemo() {
     "1. [CRITICAL] CHECK 4 · ZOMBIE_SUBSCRIPTION (Entity: user_id=usr_zombie_1 / sub_zombie_01)",
     "   - DB Status: 'active' | Live Stripe Status: 'canceled'",
     "   - Impact: User is consuming paid compute/credits for free after subscription cancellation.",
-    "   - Circuit-Breaker Action: QUARANTINE (is_billing_quarantined: false -> true, exposure=2900 cents)",
+    "   - Circuit-Breaker Action: QUARANTINE (status -> 'canceled', exposure=2900 cents)",
     "",
     "2. [CRITICAL] CHECK 5 · DUPLICATE_WEBHOOK_CREDIT_GRANT (Entity: stripe_event_id=evt_dup_99)",
     "   - Invoice: in_starter_29 ($29.00 = 2900 integer cents)",
@@ -1710,18 +3129,19 @@ function toggleGroupBDemo() {
   }
 
   commitState((next) => {
-    next.reconciler = {
+    next.reconciler = Object.assign({}, next.reconciler, {
       rawReport: reportText,
       checks: structuredChecks
-    };
+    });
   });
 }
 
 // Polar.sh Merchant-of-Record Instant Delivery Links (EU VAT / US Tax + GitHub Repo Invite + BWV2E Key)
-// Keyed strictly by INTEGER cents (4900 = PRO_MONTHLY, 14900 = LIFETIME_TEAM; zero FLOAT/REAL).
+// Keyed strictly by INTEGER cents (4900 = PRO_MONTHLY, 14900 = LIFETIME_TEAM, 29900 = AGENCY_TEAM; zero FLOAT/REAL).
 const POLAR_CHECKOUT_URLS = {
   4900: "",
-  14900: ""
+  14900: "",
+  29900: ""
 };
 if (typeof window !== "undefined") {
   window.POLAR_CHECKOUT_URLS = POLAR_CHECKOUT_URLS;
@@ -1739,7 +3159,12 @@ function startPolarCheckout(itemName, amountCents) {
     return true;
   }
 
-  const tierCode = amountCents === 14900 ? "LIFETIME_TEAM" : "PRO_MONTHLY";
+  const tierCode =
+    amountCents === 29900
+      ? "AGENCY_TEAM"
+      : amountCents === 14900
+        ? "LIFETIME_TEAM"
+        : "PRO_MONTHLY";
   const displayUsd = formatUsdFromIntegerCents(amountCents);
   const subject = encodeURIComponent(
     "Polar.sh MoR Checkout / Invoice Request - Billing Watchdog v2 (" + tierCode + " - " + amountCents + " cents)"
@@ -1856,13 +3281,17 @@ if (typeof window !== "undefined") {
     copyPatch,
     downloadPatch,
     copyQuarantineSql,
-    toggleGroupBDemo
+    toggleGroupBDemo,
+    runSubscriptionDiffReconciler,
+    loadSampleZombieDiff,
+    copyDiffSql
   };
 }
 
 runChaosSimulation("ALL");
 loadSampleSql("vulnerable");
 toggleGroupBDemo();
+loadSampleZombieDiff();
 
 if (typeof window !== "undefined" && window.location && window.location.search) {
   try {

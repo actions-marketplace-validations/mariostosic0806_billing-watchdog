@@ -5,9 +5,6 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Privacy Policy — Billing Watchdog v2</title>
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23141413' stroke-width='2' stroke-linecap='square' stroke-linejoin='miter'%3E%3Crect x='2.5' y='2.5' width='19' height='19' rx='2'/%3E%3Cpath d='M6 12h4l2-5 3 10 2-5h1'/%3E%3C/svg%3E" />
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&family=Newsreader:opsz,wght@6..72,500;6..72,600&display=swap" rel="stylesheet" />
   <style>
     :root {
       --bg-canvas: #F4F2EC;
@@ -49,19 +46,22 @@
   <main class="wrap">
     <article class="card">
       <h1>Privacy Policy</h1>
-      <div class="meta">Effective Date: 2026-11-20 | Operator: Mario Stosic (Individual Software Developer, Serbia)</div>
+      <div class="meta">Effective Date: 2026-11-20 | Operator: Mario Stosic (Individual Software Developer, Belgrade, Republic of Serbia)</div>
 
-      <h2>1. Zero Telemetry &amp; Client-Side Execution</h2>
-      <p>The browser SQL/RLS linter and simulator hosted at <code>mariostosic0806.github.io/billing-watchdog/</code> execute entirely in your local browser memory. SQL schemas, code snippets, and license tokens pasted into the page are never transmitted to our servers. The Self-Hosted Pro v2 CLI and GitHub Action execute exclusively inside your own CI runners or servers; your database URLs and Stripe restricted keys never leave your infrastructure.</p>
+      <h2>1. Zero Application Telemetry, Self-Hosted Fonts &amp; Client-Side Execution</h2>
+      <p>The browser SQL/ORM/RLS auditor, storm simulator, and CSV/JSON subscription diff reconciler hosted at <code>mariostosic0806.github.io/billing-watchdog/</code> run with <strong>zero application telemetry</strong>: zero analytics scripts, zero tracking cookies, and zero external Google Fonts requests (all <code>.woff2</code> web fonts are self-hosted on the same origin or rendered via local system font stacks in compliance with EU GDPR standards, <em>LG München Az. 3 O 17493/20</em>). SQL schemas, TypeScript/ORM code, Stripe/database CSV or JSON exports, and <code>BWV2E-...</code> license tokens inspected in the browser are processed strictly in local browser memory (<code>0</code> bytes uploaded). The Self-Hosted Pro v2 CLI and GitHub Action execute exclusively inside your own CI runners or servers; your database URLs and Stripe restricted keys never leave your infrastructure.</p>
 
-      <h2>2. Payment &amp; Order Data (Polar Software, Inc.)</h2>
-      <p>Payment processing, card handling, tax/VAT collection, and order invoicing are performed by <strong>Polar Software, Inc.</strong> as Merchant of Record. We do not receive or store full payment card numbers. We receive only order fulfillment metadata (buyer email, order/subscription ID, purchased tier, and license status) required to issue signed <code>BWV2E-...</code> license keys and grant private repository access.</p>
+      <h2>2. Static Web Hosting &amp; Transient Edge CDN Logs</h2>
+      <p>This static documentation and browser workbench site is served via <strong>GitHub Pages</strong> (operated by GitHub, Inc. and delivered over the <strong>Fastly</strong> edge CDN). Standard to any HTTPS web delivery, GitHub Pages / Fastly transiently process incoming HTTP connection metadata (such as visitor IP address, TLS handshake parameters, User-Agent header, and requested asset path) strictly for TLS content delivery, DDoS mitigation, and platform abuse prevention under GitHub's Privacy Statement. The operator does not receive, log, or store visitor IP addresses from GitHub Pages.</p>
 
-      <h2>3. Data Retention &amp; Deletion</h2>
+      <h2>3. Payment &amp; Order Data (Polar Software, Inc.)</h2>
+      <p>Payment processing, card handling, EU VAT/GST/sales tax collection, and order invoicing are performed by <strong>Polar Software, Inc.</strong> as Merchant of Record. We do not receive or store full payment card numbers. We receive only order fulfillment metadata (buyer email, order/subscription ID, purchased tier, and license status) required to issue signed <code>BWV2E-...</code> license keys and grant private repository access.</p>
+
+      <h2>4. Data Retention &amp; Deletion</h2>
       <p>Support emails and license entitlement records are retained solely for license verification, customer support, and mandatory accounting/tax record-keeping. To request access, correction, or deletion of personal contact records, email <a href="mailto:mariostosic@prime-tech.rs">mariostosic@prime-tech.rs</a>.</p>
 
-      <h2>4. Contact</h2>
-      <p>Data controller: <strong>Mario Stosic</strong> (Individual Software Developer, Serbia) — <a href="mailto:mariostosic@prime-tech.rs">mariostosic@prime-tech.rs</a>.</p>
+      <h2>5. Data Controller &amp; Contact</h2>
+      <p>Data controller: <strong>Mario Stosic</strong> (Individual Software Developer, Belgrade, Republic of Serbia) — <a href="mailto:mariostosic@prime-tech.rs">mariostosic@prime-tech.rs</a>.</p>
     </article>
   </main>
 </body>
