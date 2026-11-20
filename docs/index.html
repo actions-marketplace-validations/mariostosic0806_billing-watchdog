@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&family=Newsreader:opsz,wght@6..72,500;6..72,600&display=swap" rel="stylesheet" />
-  <script type="module" crossorigin src="./assets/index-UsMOHVCu.js"></script>
+  <script type="module" crossorigin src="./assets/index-BmaaOt02.js"></script>
   <link rel="modulepreload" crossorigin href="./assets/vendor-B0kZVdRu.js">
   <link rel="stylesheet" crossorigin href="./assets/index-CWPNG__d.css">
 </head>
@@ -59,11 +59,30 @@ function getElSafe(id) {
   return document.getElementById(id);
 }
 
-function readIntInput(id, fallbackVal, minVal) {
+function readIntInput(id, fallbackVal, minVal, maxVal) {
   const el = getElSafe(id);
   const parsed = el && el.value !== undefined && el.value !== "" ? parseInt(String(el.value), 10) : NaN;
-  const val = Number.isFinite(parsed) && parsed > 0 ? parsed : fallbackVal;
-  return minVal !== undefined ? Math.max(minVal, val) : val;
+  let val = Number.isFinite(parsed) && parsed > 0 ? parsed : fallbackVal;
+  if (minVal !== undefined) val = Math.max(minVal, val);
+  if (maxVal !== undefined) val = Math.min(maxVal, val);
+  return val;
+}
+
+function sanitizePositiveSafeInt(val, fallbackVal, minVal, maxVal) {
+  if (typeof val !== "number" || !Number.isSafeInteger(val) || val <= 0) {
+    return fallbackVal;
+  }
+  let out = val;
+  if (minVal !== undefined && out < minVal) out = minVal;
+  if (maxVal !== undefined && out > maxVal) out = maxVal;
+  return out;
+}
+
+function sanitizeClampedSubsInt(val, fallbackVal) {
+  if (typeof val !== "number" || !Number.isSafeInteger(val)) {
+    return fallbackVal;
+  }
+  return Math.min(100000, Math.max(10, val));
 }
 
 function sha256HexSync(ascii) {
@@ -159,7 +178,8 @@ function escapeHtmlSafe(raw) {
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
 }
 
 function formatUsdFromCents(cents) {
@@ -340,10 +360,11 @@ function lineOfPattern(text, regex) {
   return text.slice(0, m.index).split(/\r?\n/).length;
 }
 
-function buildOscilloscopeTicks(planPriceCents, planCredits, thresholdCents, oooLeakedCents, disputeDeficitCredits, disputeDeficitCents) {
+function buildOscilloscopeTicks(planPriceCents, planCredits, thresholdCents, _oooLeakedCents, disputeDeficitCredits, disputeDeficitCents) {
   const ticks = [];
   let runningLeakCents = 0;
   let runningLeakCredits = 0;
+  let oooRunningCents = 0;
   let trippedAtTick = -1;
 
   for (let i = 0; i < 50; i++) {
@@ -369,6 +390,7 @@ function buildOscilloscopeTicks(planPriceCents, planCredits, thresholdCents, ooo
       if (i === 22 || i === 27) {
         naiveCentsDelta = planPriceCents;
         naiveCreditsDelta = planCredits;
+        oooRunningCents += planPriceCents;
         watchdogAction = "WATERMARK_DROP";
       } else {
         watchdogAction = "VERIFIED";
@@ -396,7 +418,7 @@ function buildOscilloscopeTicks(planPriceCents, planCredits, thresholdCents, ooo
           naiveCreditsDelta = disputeDeficitCredits;
           watchdogAction = "CLAMPED_ZERO";
         } else {
-          watchdogAction = "QUARANTINED";
+          watchdogAction = disputeDeficitCents >= thresholdCents ? "QUARANTINED" : "VERIFIED";
         }
       } else if (i === 45 || i === 46) {
         phase = "ARITH";
@@ -411,9 +433,20 @@ function buildOscilloscopeTicks(planPriceCents, planCredits, thresholdCents, ooo
 
     runningLeakCents += naiveCentsDelta;
     runningLeakCredits += naiveCreditsDelta;
-    if (trippedAtTick === -1 && oooLeakedCents >= thresholdCents && i >= 27) {
-      trippedAtTick = i;
+    if (trippedAtTick === -1) {
+      if ((i === 22 || i === 27) && oooRunningCents >= thresholdCents) {
+        trippedAtTick = i;
+      } else if (i === 43 && disputeDeficitCents >= thresholdCents) {
+        trippedAtTick = i;
+      }
     }
+
+    const breakerState =
+      trippedAtTick === -1 || i < trippedAtTick
+        ? "ARMED"
+        : i === trippedAtTick
+          ? "TRIPPED"
+          : "QUARANTINED";
 
     ticks.push({
       index: i,
@@ -425,7 +458,7 @@ function buildOscilloscopeTicks(planPriceCents, planCredits, thresholdCents, ooo
       cumulativeNaiveCents: runningLeakCents,
       cumulativeNaiveCredits: runningLeakCredits,
       watchdogAction,
-      breakerState: trippedAtTick !== -1 && i >= trippedAtTick ? "QUARANTINED" : i === 22 ? "TRIPPED" : "ARMED",
+      breakerState,
       isTripPoint: i === trippedAtTick
     });
   }
@@ -449,12 +482,21 @@ function updateLicenseDom(statusHtml, badgeLabel, unlocked) {
       pBadge.className = "sev sev-ok";
       pBadge.textContent = badgeLabel || "PRO UNLOCKED";
     }
+  } else {
+    if (qBadge) {
+      qBadge.className = "sev sev-warn";
+      qBadge.textContent = badgeLabel || "PRO LICENSE REQUIRED";
+    }
+    if (pBadge) {
+      pBadge.className = "sev sev-warn";
+      pBadge.textContent = badgeLabel || "PRO LICENSE REQUIRED";
+    }
   }
 }
 
 function applyProUnlockedUiState(labelSuffix) {
   const text = labelSuffix || "PRO / LIFETIME LICENSE VERIFIED (Full SQL Remediation Export Unlocked)";
-  const statusHtml = 'Status: <strong class="status-ok">' + text + "</strong>";
+  const statusHtml = 'Status: <strong class="status-ok">' + escapeHtmlSafe(text) + "</strong>";
   isProLicenseUnlocked = true;
   commitState((next) => {
     next.isProLicenseUnlocked = true;
@@ -469,21 +511,30 @@ function applyProUnlockedUiState(labelSuffix) {
   runSqlLinter();
 }
 
+function applyLicenseRelockState(statusKind, msg, statusCssClass, draftOverride) {
+  const html = 'Status: <strong class="' + statusCssClass + '">' + escapeHtmlSafe(msg) + "</strong>";
+  isProLicenseUnlocked = false;
+  commitState((next) => {
+    next.isProLicenseUnlocked = false;
+    next.licenseLabel = "Free Diagnostic Mode";
+    next.licenseStatusKind = statusKind;
+    next.licenseStatusText = msg;
+    next.licenseStatusHtml = html;
+    next.polarNotice = null;
+    if (draftOverride !== undefined) {
+      next.licenseKeyDraft = draftOverride;
+    }
+  });
+  updateLicenseDom(html, "PRO LICENSE REQUIRED", false);
+  runChaosSimulation(currentChaosFilter);
+  runSqlLinter();
+}
+
 async function verifyEd25519LicenseInBrowser(rawKey, overrideSpkiB64) {
   const trimmed = (rawKey || "").trim();
   const match = /^BWV2E-(PRO_MONTHLY|LIFETIME_TEAM)-(WATCHDOG_V2|BUNDLE_ALL)-(\d{10,12})-([0-9A-F]{12})-([A-Za-z0-9_-]{86})$/.exec(trimmed);
   if (!match) {
-    isProLicenseUnlocked = false;
-    const msg = "Malformed BWV2E Ed25519 License Key.";
-    const html = 'Status: <strong class="status-danger">' + msg + "</strong>";
-    commitState((next) => {
-      next.isProLicenseUnlocked = false;
-      next.licenseLabel = "Free Diagnostic Mode";
-      next.licenseStatusKind = "error";
-      next.licenseStatusText = msg;
-      next.licenseStatusHtml = html;
-    });
-    updateLicenseDom(html, "", false);
+    applyLicenseRelockState("error", "Malformed BWV2E Ed25519 License Key.", "status-danger");
     return false;
   }
   const tier = match[1];
@@ -494,16 +545,11 @@ async function verifyEd25519LicenseInBrowser(rawKey, overrideSpkiB64) {
 
   const nowUnix = Math.floor(Date.now() / 1000);
   if (nowUnix > expUnix) {
-    isProLicenseUnlocked = false;
-    const msg = "License Key Expired (UTC Unix " + expUnix + "). Renew via Polar checkout below.";
-    const html = 'Status: <strong class="status-danger">' + msg + "</strong>";
-    commitState((next) => {
-      next.isProLicenseUnlocked = false;
-      next.licenseStatusKind = "error";
-      next.licenseStatusText = msg;
-      next.licenseStatusHtml = html;
-    });
-    updateLicenseDom(html, "", false);
+    applyLicenseRelockState(
+      "error",
+      "License Key Expired (UTC Unix " + expUnix + "). Renew via Polar checkout below.",
+      "status-danger"
+    );
     return false;
   }
 
@@ -511,45 +557,34 @@ async function verifyEd25519LicenseInBrowser(rawKey, overrideSpkiB64) {
     (typeof globalThis !== "undefined" && globalThis.crypto && globalThis.crypto.subtle) ||
     (typeof window !== "undefined" && window.crypto && window.crypto.subtle);
   if (!subtle) {
-    const msg = "Browser WebCrypto Ed25519 unavailable (HTTPS or localhost required).";
-    const html = 'Status: <strong class="status-warn">' + msg + "</strong>";
-    commitState((next) => {
-      next.licenseStatusKind = "warn";
-      next.licenseStatusText = msg;
-      next.licenseStatusHtml = html;
-    });
-    updateLicenseDom(html, "", false);
+    applyLicenseRelockState(
+      "warn",
+      "Browser WebCrypto Ed25519 unavailable (HTTPS or localhost required).",
+      "status-warn"
+    );
     return false;
   }
 
   try {
     const spkiBytes = decodeBase64Bytes(overrideSpkiB64 || PRIME_TECH_ED25519_PUBLIC_KEY_SPKI_B64, false);
     const sigBytes = decodeBase64Bytes(sigB64Url, true);
-    if (sigBytes.length !== 64) return false;
-    const canonical = "BWV2E:" + tier + ":" + scope + ":" + expUnix + ":" + custHash12;
-    const msgBytes = new Uint8Array(canonical.length);
-    for (let i = 0; i < canonical.length; i++) msgBytes[i] = canonical.charCodeAt(i) & 0x7f;
+    if (sigBytes.length === 64) {
+      const canonical = "BWV2E:" + tier + ":" + scope + ":" + expUnix + ":" + custHash12;
+      const msgBytes = new Uint8Array(canonical.length);
+      for (let i = 0; i < canonical.length; i++) msgBytes[i] = canonical.charCodeAt(i) & 0x7f;
 
-    const pubKey = await subtle.importKey("spki", spkiBytes, { name: "Ed25519" }, false, ["verify"]);
-    const ok = await subtle.verify({ name: "Ed25519" }, pubKey, sigBytes, msgBytes);
-    if (ok) {
-      applyProUnlockedUiState("ED25519 " + tier + " VERIFIED (Full SQL Remediation Export Unlocked)");
-      return true;
+      const pubKey = await subtle.importKey("spki", spkiBytes, { name: "Ed25519" }, false, ["verify"]);
+      const ok = await subtle.verify({ name: "Ed25519" }, pubKey, sigBytes, msgBytes);
+      if (ok) {
+        applyProUnlockedUiState("ED25519 " + tier + " VERIFIED (Full SQL Remediation Export Unlocked)");
+        return true;
+      }
     }
   } catch (_err) {
     // Fall through to invalid signature message
   }
 
-  isProLicenseUnlocked = false;
-  const errMsg = "Invalid Ed25519 License Signature.";
-  const errHtml = 'Status: <strong class="status-danger">' + errMsg + "</strong>";
-  commitState((next) => {
-    next.isProLicenseUnlocked = false;
-    next.licenseStatusKind = "error";
-    next.licenseStatusText = errMsg;
-    next.licenseStatusHtml = errHtml;
-  });
-  updateLicenseDom(errHtml, "", false);
+  applyLicenseRelockState("error", "Invalid Ed25519 License Signature.", "status-danger");
   return false;
 }
 
@@ -564,15 +599,24 @@ function unlockProPortal(explicitKey) {
   ).trim();
 
   if (rawKey.indexOf("BWV2E-") === 0) {
+    const wasUnlocked = isProLicenseUnlocked;
     const verifyingMsg = "Verifying Asymmetric Ed25519 Signature...";
     const verifyingHtml = 'Status: <strong class="status-info">' + verifyingMsg + "</strong>";
+    isProLicenseUnlocked = false;
     commitState((next) => {
+      next.isProLicenseUnlocked = false;
+      next.licenseLabel = "Free Diagnostic Mode";
       next.licenseKeyDraft = rawKey;
       next.licenseStatusKind = "info";
       next.licenseStatusText = verifyingMsg;
       next.licenseStatusHtml = verifyingHtml;
+      next.polarNotice = null;
     });
-    updateLicenseDom(verifyingHtml, "", false);
+    updateLicenseDom(verifyingHtml, "PRO LICENSE REQUIRED", false);
+    if (wasUnlocked) {
+      runChaosSimulation(currentChaosFilter);
+      runSqlLinter();
+    }
     verifyEd25519LicenseInBrowser(rawKey);
     return false;
   }
@@ -585,17 +629,12 @@ function unlockProPortal(explicitKey) {
     applyProUnlockedUiState("PRO / LIFETIME LICENSE VERIFIED (Full SQL Remediation Export Unlocked)");
     return true;
   } else {
-    isProLicenseUnlocked = false;
-    const msg = "Invalid License Key. Purchase Pro ($49/mo) or Lifetime ($149) below to receive your BWV2E-... key.";
-    const html = 'Status: <strong class="status-danger">' + msg + "</strong>";
-    commitState((next) => {
-      next.isProLicenseUnlocked = false;
-      next.licenseKeyDraft = rawKey;
-      next.licenseStatusKind = "error";
-      next.licenseStatusText = msg;
-      next.licenseStatusHtml = html;
-    });
-    updateLicenseDom(html, "", false);
+    applyLicenseRelockState(
+      "error",
+      "Invalid License Key. Purchase Pro ($49/mo) or Lifetime ($149) below to receive your BWV2E-... key.",
+      "status-danger",
+      rawKey
+    );
     return false;
   }
 }
@@ -613,30 +652,35 @@ function runChaosSimulation(filterMode, paramsOverride) {
     }
   }
 
+  const fallbackPrice = sanitizePositiveSafeInt(__state.chaos.planPriceCents, 4900, 1, 100000000);
+  const fallbackCredits = sanitizePositiveSafeInt(__state.chaos.planCredits, 2000, 1, 100000000);
+  const fallbackSubs = sanitizeClampedSubsInt(__state.chaos.monthlySubs, 500);
+  const fallbackThreshold = sanitizePositiveSafeInt(__state.chaos.quarantineThresholdCents, 2500, 1, 100000000);
+
   const planPriceCents =
-    paramsOverride && Number.isFinite(paramsOverride.planPriceCents)
-      ? paramsOverride.planPriceCents
+    paramsOverride && paramsOverride.planPriceCents !== undefined
+      ? sanitizePositiveSafeInt(paramsOverride.planPriceCents, fallbackPrice, 1, 100000000)
       : isReactMounted()
-        ? __state.chaos.planPriceCents
-        : readIntInput("chaos-plan-price", __state.chaos.planPriceCents || 4900);
+        ? fallbackPrice
+        : readIntInput("chaos-plan-price", fallbackPrice, 1, 100000000);
   const planCredits =
-    paramsOverride && Number.isFinite(paramsOverride.planCredits)
-      ? paramsOverride.planCredits
+    paramsOverride && paramsOverride.planCredits !== undefined
+      ? sanitizePositiveSafeInt(paramsOverride.planCredits, fallbackCredits, 1, 100000000)
       : isReactMounted()
-        ? __state.chaos.planCredits
-        : readIntInput("chaos-plan-credits", __state.chaos.planCredits || 2000);
+        ? fallbackCredits
+        : readIntInput("chaos-plan-credits", fallbackCredits, 1, 100000000);
   const monthlySubs =
-    paramsOverride && Number.isFinite(paramsOverride.monthlySubs)
-      ? Math.max(10, paramsOverride.monthlySubs)
+    paramsOverride && paramsOverride.monthlySubs !== undefined
+      ? sanitizeClampedSubsInt(paramsOverride.monthlySubs, fallbackSubs)
       : isReactMounted()
-        ? __state.chaos.monthlySubs
-        : readIntInput("chaos-monthly-subs", __state.chaos.monthlySubs || 500, 10);
+        ? fallbackSubs
+        : readIntInput("chaos-monthly-subs", fallbackSubs, 10, 100000);
   const thresholdCents =
-    paramsOverride && Number.isFinite(paramsOverride.quarantineThresholdCents)
-      ? paramsOverride.quarantineThresholdCents
+    paramsOverride && paramsOverride.quarantineThresholdCents !== undefined
+      ? sanitizePositiveSafeInt(paramsOverride.quarantineThresholdCents, fallbackThreshold, 1, 100000000)
       : isReactMounted()
-        ? __state.chaos.quarantineThresholdCents
-        : readIntInput("chaos-quarantine-threshold", __state.chaos.quarantineThresholdCents || 2500);
+        ? fallbackThreshold
+        : readIntInput("chaos-quarantine-threshold", fallbackThreshold, 1, 100000000);
 
   // Pure integer arithmetic for all 4 chaos vectors (50 events total):
   const burstMultiplier = 19;
@@ -936,9 +980,9 @@ function runChaosSimulation(filterMode, paramsOverride) {
         .map(
           (r) =>
             "<tr>" +
-            "<td><strong>" + r.vector + "</strong></td>" +
-            "<td class='cell-naive'>" + r.naive + "</td>" +
-            "<td class='cell-watchdog'>" + r.watchdog + "</td>" +
+            "<td><strong>" + escapeHtmlSafe(r.vector) + "</strong></td>" +
+            "<td class='cell-naive'>" + escapeHtmlSafe(r.naive) + "</td>" +
+            "<td class='cell-watchdog'>" + escapeHtmlSafe(r.watchdog) + "</td>" +
             "</tr>"
         )
         .join("");
@@ -985,9 +1029,10 @@ function copyQuarantineSql() {
       next.licenseStatusKind = "warn";
       next.licenseStatusText = msg;
       next.licenseStatusHtml = html;
+      next.polarNotice = null;
       next.licenseDrawerOpen = true;
     });
-    updateLicenseDom(html, "", false);
+    updateLicenseDom(html, "PRO LICENSE REQUIRED", false);
     return false;
   }
   const el = !isReactMounted() ? getElSafe("quarantine-sql-output") : null;
@@ -1026,6 +1071,76 @@ function loadSampleSql(mode) {
   runSqlLinter(code, preset);
 }
 
+function stripJsCommentsPreserveLines(src) {
+  return src
+    .replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\r\n]/g, " "))
+    .replace(/(^|[^:\\])\/\/[^\r\n]*/g, "$1");
+}
+
+function stripSqlCommentsPreserveLines(src) {
+  return src.replace(/\/\*[\s\S]*?\*\/|--[^\r\n]*/g, (m) => m.replace(/[^\r\n]/g, " "));
+}
+
+function extractBalancedParen(str, startIdx) {
+  let i = startIdx;
+  while (i < str.length && /\s/.test(str[i])) i++;
+  if (i >= str.length || str[i] !== "(") return null;
+  let depth = 0;
+  let inSingleQuote = false;
+  const contentStart = i + 1;
+  for (; i < str.length; i++) {
+    const ch = str[i];
+    if (inSingleQuote) {
+      if (ch === "'" && str[i + 1] === "'") {
+        i++;
+      } else if (ch === "'") {
+        inSingleQuote = false;
+      }
+      continue;
+    }
+    if (ch === "'") {
+      inSingleQuote = true;
+    } else if (ch === "(") {
+      depth++;
+    } else if (ch === ")") {
+      depth--;
+      if (depth === 0) {
+        return { expr: str.slice(contentStart, i), endIdx: i + 1 };
+      }
+    }
+  }
+  return null;
+}
+
+function isPermissivePolicyExpr(rawExpr) {
+  let e = rawExpr.trim();
+  while (e.startsWith("(") && e.endsWith(")")) {
+    const inner = extractBalancedParen(e, 0);
+    if (inner && inner.endIdx === e.length) {
+      e = inner.expr.trim();
+    } else {
+      break;
+    }
+  }
+  if (/^true$/i.test(e) || /^1\s*=\s*1$/.test(e)) return true;
+  if (/auth\.role\s*\(\s*\)\s*=\s*'authenticated'/i.test(e) && !/auth\.(?:uid|jwt)\s*\(/i.test(e)) {
+    return true;
+  }
+  return false;
+}
+
+function stmtHasNonNegativeBalanceCheck(stmt) {
+  if (!/\bCHECK\b/i.test(stmt)) return false;
+  const chkRe = /\bCHECK\s*\([\s(]*([a-zA-Z0-9_."]+)\s*>=\s*(?:\(\s*0\s*\)|0\b)/gi;
+  let m;
+  while ((m = chkRe.exec(stmt)) !== null) {
+    if (m[1].toLowerCase().indexOf("balance") !== -1) {
+      return true;
+    }
+  }
+  return false;
+}
+
 function runSqlLinter(codeOverride, presetOverride) {
   const tStart = typeof performance !== "undefined" && typeof performance.now === "function" ? performance.now() : 0;
   const domSqlEl = !isReactMounted() ? getElSafe("sql-input") : null;
@@ -1038,65 +1153,115 @@ function runSqlLinter(codeOverride, presetOverride) {
           ? domSqlEl.value
           : __state.linter.sqlInput || "";
 
-  const isCodeMode = /\b(export\s+async\s+function|streamText\s*\(|req\.json\s*\(|supabase\.from\s*\(|prisma\.)/.test(sql);
+  if (sql.trim() === "") {
+    const emptyPatchText =
+      "-- Paste a PostgreSQL migration (.sql) or Next.js/TypeScript route (.ts) to run offline invariant checks.";
+    if (!isReactMounted()) {
+      const container = getElSafe("findings-container");
+      const patchEl = getElSafe("patch-output");
+      if (container) {
+        container.innerHTML =
+          '<div class="finding-ok">0 Schema or RLS Vulnerabilities Found — Paste SQL or TypeScript route to audit</div>';
+      }
+      if (patchEl) patchEl.value = emptyPatchText;
+    }
+    const tEnd = typeof performance !== "undefined" && typeof performance.now === "function" ? performance.now() : 0;
+    const lintMs = Math.max(1, Math.round(tEnd - tStart));
+    commitState((next) => {
+      next.linter = {
+        activePreset: presetOverride !== undefined ? presetOverride : next.linter.activePreset,
+        sqlInput: sql,
+        isCodeMode: false,
+        findings: [],
+        patchOutput: emptyPatchText,
+        lintMs
+      };
+    });
+    return;
+  }
+
+  const cleanCode = stripJsCommentsPreserveLines(sql);
+  const codeDetectProbe = cleanCode.replace(/^\s*--[^\r\n]*/gm, " ");
+  const isCodeMode =
+    /\b(?:export\s+(?:async\s+)?function|export\s+default\b|streamText\s*\(|generateText\s*\(|generateObject\s*\(|streamObject\s*\(|(?:req|request)\.json\s*\(|supabase\.from\s*\(|prisma\.)/.test(
+      codeDetectProbe
+    );
 
   if (isCodeMode) {
     const codeFindings = [];
-    if (/\b(req|request)\.json\s*\(\s*\)/.test(sql) || !/constructEvent|verifyStripeWebhookSignature/.test(sql)) {
+    const looksLikeStripeWebhook =
+      /stripe-signature|constructEvent|verifyStripeWebhookSignature|webhooks\/stripe|stripe\.webhooks|checkout\.session\.completed|invoice\.(?:paid|payment_succeeded)|customer\.subscription|charge\.(?:refunded|dispute)|payment_intent\./i.test(
+        cleanCode
+      );
+    if (
+      looksLikeStripeWebhook &&
+      (/\b(req|request)\.json\s*\(\s*\)/.test(cleanCode) || !/constructEvent|verifyStripeWebhookSignature/.test(cleanCode))
+    ) {
       codeFindings.push({
         sev: "CRITICAL",
         title: "Webhook skips raw-body HMAC signature verification",
         code: "AST 1 · MISSING_STRIPE_SIGNATURE_VERIFICATION",
         table: "app/api/webhooks/stripe/route.ts",
-        line: lineOfPattern(sql, /\b(?:req|request)\.json\s*\(|export\s+async\s+function/),
+        line: lineOfPattern(cleanCode, /\b(?:req|request)\.json\s*\(|export\s+(?:default\s+)?(?:async\s+)?function/),
         msg: "Webhook route parses req.json() or omits cryptographic Stripe-Signature HMAC verification, allowing forged invoice.paid payloads.",
         diffRemove: "- const event = await req.json(); // Breaks raw HMAC body & skips Stripe-Signature check",
         diffAdd: "+ const rawBody = await req.text(); verifyStripeWebhookSignature(rawBody, sig, secret);"
       });
     }
-    if (/checkout\.session\.completed/.test(sql) && /invoice\.(paid|payment_succeeded)/.test(sql) && !/canonical_grant_key|canonicalGrantKey/.test(sql)) {
+    if (
+      /checkout\.session\.completed/.test(cleanCode) &&
+      /invoice\.(paid|payment_succeeded)/.test(cleanCode) &&
+      !/canonical_grant_key|canonicalGrantKey/.test(cleanCode)
+    ) {
       codeFindings.push({
         sev: "HIGH",
         title: "Grants twice on signup without canonical invoice lock",
         code: "AST 2 · DUAL_WEBHOOK_GRANT_WITHOUT_CANONICAL_LOCK",
         table: "checkout.session.completed + invoice.paid",
-        line: lineOfPattern(sql, /checkout\.session\.completed/),
+        line: lineOfPattern(cleanCode, /checkout\.session\.completed/),
         msg: "Handles both checkout.session.completed and invoice.paid without canonical invoice_id deduplication (grants 2x credits on signup).",
         diffRemove: "- if (event.type === 'checkout.session.completed' || event.type === 'invoice.paid') { ... }",
         diffAdd: "+ canonicalGrantKey = `invoice:${event.invoiceId}`; // Dedupes cross-event parallel bursts"
       });
     }
-    if (/\b(credits|credits_balance|balance)\s*:\s*[a-zA-Z0-9_$.]+\.(credits|credits_balance|balance)\s*[+-]/.test(sql)) {
+    if (/\b(credits|credits_balance|balance)\s*:\s*[a-zA-Z0-9_$.]+\.(credits|credits_balance|balance)\s*[+-]/.test(cleanCode)) {
       codeFindings.push({
         sev: "CRITICAL",
         title: "Non-atomic JS wallet balance read-modify-write",
         code: "AST 3 · NON_ATOMIC_READ_MODIFY_WRITE_CREDITS",
         table: "supabase.from('wallets').update(...)",
-        line: lineOfPattern(sql, /\b(?:credits|credits_balance|balance)\s*:/),
+        line: lineOfPattern(cleanCode, /\b(?:credits|credits_balance|balance)\s*:/),
         msg: "Non-atomic JavaScript Read-Modify-Write credit mutation allows 20 concurrent requests to overwrite the same wallet balance.",
         diffRemove: "- await supabase.from('wallets').update({ credits: wallet.credits + 1000 });",
         diffAdd: "+ SELECT credits_balance FROM public.wallets WHERE user_id = $1 FOR UPDATE; // Row lock"
       });
     }
-    if (/streamText\s*\(/.test(sql) && /onFinish/.test(sql) && !/reserveCreditsForStream|reserveStreamCredits|executeGuardedAiStream/.test(sql)) {
+    if (
+      /\b(streamText|streamObject)\s*\(/.test(cleanCode) &&
+      /\bonFinish\b/.test(cleanCode) &&
+      !/reserveCreditsForStream|reserveStreamCredits|executeGuardedAiStream/.test(cleanCode)
+    ) {
       codeFindings.push({
         sev: "CRITICAL",
         title: "Unreserved LLM stream deduction inside onFinish",
         code: "AST 4 · UNRESERVED_STREAMING_LLM_DEDUCTION",
         table: "streamText({ onFinish })",
-        line: lineOfPattern(sql, /streamText\s*\(/),
+        line: lineOfPattern(cleanCode, /\b(?:streamText|streamObject)\s*\(/),
         msg: "Deducts LLM credits inside onFinish without a Pre-Flight Hold Reservation. 50 parallel /api/chat requests will bypass the balance check before stream #1 finishes.",
         diffRemove: "- return streamText({ model, onFinish: async ({ usage }) => deductCredits(usage) });",
         diffAdd: "+ return watchdog.executeGuardedAiStream({ userId, estimatedMaxCredits: 100, streamExecutor });"
       });
     }
-    if (/\b(streamText|generateText|generateObject|streamObject)\s*\(/.test(sql) && !/auth\.getUser|getServerSession|currentUser\s*\(|verifySession/.test(sql)) {
+    if (
+      /\b(streamText|generateText|generateObject|streamObject)\s*\(/.test(cleanCode) &&
+      !/auth\.getUser|getServerSession|currentUser\s*\(|verifySession|requireAuthenticatedUser/.test(cleanCode)
+    ) {
       codeFindings.push({
         sev: "CRITICAL",
         title: "AI route runs paid model without caller auth or hold",
         code: "AST 5 · DENIAL_OF_WALLET_UNGUARDED_AI_ROUTE",
         table: "POST /api/chat (LLM Endpoint)",
-        line: lineOfPattern(sql, /\b(?:streamText|generateText|generateObject|streamObject)\s*\(/),
+        line: lineOfPattern(cleanCode, /\b(?:streamText|generateText|generateObject|streamObject)\s*\(/),
         msg: "Invokes paid LLM inference without caller session authentication or pre-flight rate/wallet hold, enabling anonymous Denial-of-Wallet API spend.",
         diffRemove: "- export async function POST(req: Request) { return streamText({ model: openai('gpt-4o') }); }",
         diffAdd: "+ const user = await requireAuthenticatedUser(req); // + pre-flight credit hold & rate limit"
@@ -1125,33 +1290,38 @@ function runSqlLinter(codeOverride, presetOverride) {
       const container = getElSafe("findings-container");
       const patchEl = getElSafe("patch-output");
       if (container) {
-        container.innerHTML = codeFindings
-          .map(
-            (f) =>
-              '<div class="finding">' +
-              '<div class="finding-head"><span class="sev ' +
-              (f.sev === "HIGH" ? "sev-high" : "") +
-              '">' +
-              f.sev +
-              "</span><strong>" +
-              f.code +
-              '</strong> <span class="finding-table">(' +
-              f.table +
-              ")</span></div>" +
-              '<div class="finding-msg">' +
-              f.msg +
-              "</div>" +
-              '<div class="code-diff">' +
-              '<div class="diff-del">' +
-              f.diffRemove +
-              "</div>" +
-              '<div class="diff-add">' +
-              f.diffAdd +
-              "</div>" +
-              "</div>" +
-              "</div>"
-          )
-          .join("");
+        if (codeFindings.length === 0) {
+          container.innerHTML =
+            '<div class="finding-ok">0 Next.js / Streaming LLM Route Vulnerabilities Found</div>';
+        } else {
+          container.innerHTML = codeFindings
+            .map(
+              (f) =>
+                '<div class="finding">' +
+                '<div class="finding-head"><span class="sev ' +
+                (f.sev === "HIGH" ? "sev-high" : "") +
+                '">' +
+                escapeHtmlSafe(f.sev) +
+                "</span><strong>" +
+                escapeHtmlSafe(f.code) +
+                '</strong> <span class="finding-table">(' +
+                escapeHtmlSafe(f.table) +
+                ")</span></div>" +
+                '<div class="finding-msg">' +
+                escapeHtmlSafe(f.msg) +
+                "</div>" +
+                '<div class="code-diff">' +
+                '<div class="diff-del">' +
+                escapeHtmlSafe(f.diffRemove) +
+                "</div>" +
+                '<div class="diff-add">' +
+                escapeHtmlSafe(f.diffAdd) +
+                "</div>" +
+                "</div>" +
+                "</div>"
+            )
+            .join("");
+        }
       }
       if (patchEl) patchEl.value = patchOutputText;
     }
@@ -1171,23 +1341,27 @@ function runSqlLinter(codeOverride, presetOverride) {
     return;
   }
 
-  const norm = sql.replace(/--[^\r\n]*/g, " ").replace(/\s+/g, " ");
+  const cleanSql = stripSqlCommentsPreserveLines(sql);
+  const statements = cleanSql
+    .split(";")
+    .map((s) => s.replace(/\s+/g, " ").trim())
+    .filter(Boolean);
+
   const findings = [];
   const patchLines = [
     "-- Billing Watchdog Auto-Generated Non-Blocking Remediation Patch",
     "-- Safe for zero-downtime production execution on PostgreSQL / Supabase",
-    "BEGIN;",
     ""
   ];
 
-  const hasCheckNonNeg = /CHECK\s*\(\s*[a-zA-Z0-9_."]*balance[a-zA-Z0-9_."]*\s*>=\s*0\s*\)/i.test(norm);
+  const hasCheckNonNeg = statements.some((stmt) => stmtHasNonNegativeBalanceCheck(stmt));
   if (!hasCheckNonNeg) {
     findings.push({
       sev: "CRITICAL",
       title: "Missing non-negative balance check constraint",
       code: "CHECK 1 · MISSING_NON_NEGATIVE_CHECK",
       table: "public.wallets (credits_balance)",
-      line: lineOfPattern(sql, /CREATE\s+TABLE\s+(?:public\.)?wallets|credits_balance/i),
+      line: lineOfPattern(cleanSql, /CREATE\s+TABLE\s+(?:"?public"?\s*\.\s*)?"?wallets"?|credits_balance/i),
       msg: "No CHECK (credits_balance >= 0) constraint found. Concurrent API requests can drive user credit balances negative.",
       diffRemove: "-   credits_balance integer NOT NULL DEFAULT 50",
       diffAdd: "+   credits_balance integer NOT NULL DEFAULT 50 CHECK (credits_balance >= 0)"
@@ -1203,26 +1377,28 @@ function runSqlLinter(codeOverride, presetOverride) {
     );
   }
 
-  const hasUniqueEvent =
-    /stripe_event_id[^,)]*\bUNIQUE\b/i.test(norm) ||
-    /UNIQUE\s*\([^)]*stripe_event_id[^)]*\)/i.test(norm) ||
-    /CREATE\s+UNIQUE\s+INDEX[^;]*stripe_event_id/i.test(norm);
+  const hasUniqueEvent = statements.some(
+    (stmt) =>
+      /\bstripe_event_id"?\s+[^,)]*\bUNIQUE\b/i.test(stmt) ||
+      /\bUNIQUE\s*\([^)]*\bstripe_event_id\b[^)]*\)/i.test(stmt) ||
+      /\bUNIQUE\s+USING\s+INDEX\s+"?[a-zA-Z0-9_]*stripe_event_id[a-zA-Z0-9_]*"?/i.test(stmt) ||
+      (/\bCREATE\s+UNIQUE\s+INDEX\b/i.test(stmt) && /\bstripe_event_id\b/i.test(stmt))
+  );
   if (!hasUniqueEvent) {
     findings.push({
       sev: "CRITICAL",
       title: "Missing Stripe event idempotency key constraint",
       code: "CHECK 2 · MISSING_WEBHOOK_UNIQUE_CONSTRAINT",
       table: "public.credit_transactions (stripe_event_id)",
-      line: lineOfPattern(sql, /stripe_event_id|credit_transactions/i),
+      line: lineOfPattern(cleanSql, /stripe_event_id|credit_transactions/i),
       msg: "Column stripe_event_id lacks a UNIQUE constraint. Parallel Stripe webhook retries (invoice.paid) will grant duplicate credits.",
       diffRemove: "-   stripe_event_id text,",
       diffAdd: "+   stripe_event_id text UNIQUE,"
     });
     patchLines.push(
-      "-- 2. Enforce Stripe webhook idempotency at the database boundary:",
-      "ALTER TABLE public.credit_transactions",
-      "  ADD CONSTRAINT credit_transactions_stripe_event_id_uq",
-      "  UNIQUE (stripe_event_id);",
+      "-- 2. Enforce Stripe webhook idempotency at the database boundary (zero-downtime CONCURRENTLY):",
+      "CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS credit_transactions_stripe_event_id_idx ON public.credit_transactions (stripe_event_id);",
+      "ALTER TABLE public.credit_transactions ADD CONSTRAINT credit_transactions_stripe_event_id_uq UNIQUE USING INDEX credit_transactions_stripe_event_id_idx;",
       ""
     );
   }
@@ -1231,8 +1407,20 @@ function runSqlLinter(codeOverride, presetOverride) {
   const rlsMissing = [];
   for (const tbl of tables) {
     const shortName = tbl.split(".")[1];
-    const hasRls = new RegExp("ALTER\\s+TABLE\\s+(?:ONLY\\s+)?(?:public\\.)?" + shortName + "\\s+ENABLE\\s+ROW\\s+LEVEL\\s+SECURITY", "i").test(norm);
-    const hasPol = new RegExp("CREATE\\s+POLICY\\s+[^;]+\\s+ON\\s+(?:public\\.)?" + shortName, "i").test(norm);
+    const rlsRe = new RegExp(
+      "\\bALTER\\s+TABLE\\s+(?:IF\\s+EXISTS\\s+)?(?:ONLY\\s+)?(?:\"?public\"?\\s*\\.\\s*)?\"?" +
+        shortName +
+        "\"?\\s+ENABLE\\s+ROW\\s+LEVEL\\s+SECURITY\\b",
+      "i"
+    );
+    const polRe = new RegExp(
+      "\\bCREATE\\s+POLICY\\s+(?:IF\\s+NOT\\s+EXISTS\\s+)?(?:\"(?:[^\"]|\"\")+\"|[a-zA-Z0-9_]+)\\s+ON\\s+(?:\"?public\"?\\s*\\.\\s*)?\"?" +
+        shortName +
+        "\"?(?=\\s|$)",
+      "i"
+    );
+    const hasRls = statements.some((stmt) => rlsRe.test(stmt));
+    const hasPol = statements.some((stmt) => polRe.test(stmt));
     if (!hasRls || !hasPol) rlsMissing.push(tbl);
   }
   if (rlsMissing.length > 0) {
@@ -1241,7 +1429,7 @@ function runSqlLinter(codeOverride, presetOverride) {
       title: "Row-Level Security missing on billing tables",
       code: "CHECK 3 · MISSING_RLS_OR_POLICY",
       table: rlsMissing.join(", "),
-      line: lineOfPattern(sql, /CREATE\s+TABLE/i),
+      line: lineOfPattern(cleanSql, /CREATE\s+TABLE/i),
       msg: "Row-Level Security (ENABLE ROW LEVEL SECURITY + CREATE POLICY) is missing on " + rlsMissing.length + " billing table(s), exposing records to PostgREST / anon key queries.",
       diffRemove: "- -- No ENABLE ROW LEVEL SECURITY / CREATE POLICY statements",
       diffAdd: "+ ALTER TABLE public.wallets ENABLE ROW LEVEL SECURITY; CREATE POLICY wallets_isolation ON public.wallets FOR SELECT USING (auth.uid() = user_id);"
@@ -1253,17 +1441,38 @@ function runSqlLinter(codeOverride, presetOverride) {
     patchLines.push("");
   }
 
-  const policyRegex = /CREATE\s+POLICY\s+([a-zA-Z0-9_"]+)\s+ON\s+([a-zA-Z0-9_."]+)[^;]*?\b(?:USING|WITH\s+CHECK)\s*\(([^;]+)\)/gi;
-  let polMatch;
+  const policyHeaderRe =
+    /\bCREATE\s+POLICY\s+(?:IF\s+NOT\s+EXISTS\s+)?("(?:[^"]|"")+"|[a-zA-Z0-9_]+)\s+ON\s+((?:"?[a-zA-Z0-9_]+"?\s*\.\s*)?"?[a-zA-Z0-9_]+"?)/gi;
   const badPolicies = [];
-  while ((polMatch = policyRegex.exec(norm)) !== null) {
-    const polName = polMatch[1];
-    const polTable = polMatch[2];
-    const polExpr = polMatch[3];
-    const isPermissiveTrue = /^\s*true\s*$/i.test(polExpr.trim());
-    const isBroadRoleOnly = /auth\.role\s*\(\s*\)\s*=\s*'authenticated'/i.test(polExpr) && !/auth\.(?:uid|jwt)\s*\(/i.test(polExpr);
-    if (isPermissiveTrue || isBroadRoleOnly) {
-      badPolicies.push(polTable + " (" + polName + ")");
+  for (const stmt of statements) {
+    policyHeaderRe.lastIndex = 0;
+    const headers = [];
+    let hm;
+    while ((hm = policyHeaderRe.exec(stmt)) !== null) {
+      headers.push({
+        polName: hm[1],
+        polTable: hm[2],
+        bodyStart: hm.index + hm[0].length,
+        headerStart: hm.index
+      });
+    }
+    for (let idx = 0; idx < headers.length; idx++) {
+      const h = headers[idx];
+      const bodyEnd = idx + 1 < headers.length ? headers[idx + 1].headerStart : stmt.length;
+      const clauseSlice = stmt.slice(h.bodyStart, bodyEnd);
+      const clauseKwRe = /\b(?:USING|WITH\s+CHECK)\b/gi;
+      let km;
+      let flagged = false;
+      while ((km = clauseKwRe.exec(clauseSlice)) !== null) {
+        const extracted = extractBalancedParen(clauseSlice, km.index + km[0].length);
+        if (extracted && isPermissivePolicyExpr(extracted.expr)) {
+          flagged = true;
+          break;
+        }
+      }
+      if (flagged) {
+        badPolicies.push(h.polTable + " (" + h.polName + ")");
+      }
     }
   }
   if (badPolicies.length > 0) {
@@ -1272,8 +1481,8 @@ function runSqlLinter(codeOverride, presetOverride) {
       title: "Permissive RLS policy allows cross-tenant access",
       code: "CHECK 4 · RLS_PERMISSIVE_NO_TENANT_FILTER",
       table: badPolicies.join(", "),
-      line: lineOfPattern(sql, /USING\s*\(\s*true|auth\.role\s*\(/i),
-      msg: "Permissive RLS policy allows cross-tenant reads/writes (USING (true) or auth.role() = 'authenticated' without auth.uid() / auth.jwt() tenant isolation).",
+      line: lineOfPattern(cleanSql, /(?:USING|WITH\s+CHECK)\s*\(\s*\(*\s*true\b|auth\.role\s*\(/i),
+      msg: "Permissive RLS policy allows cross-tenant reads/writes (USING (true) / WITH CHECK (true) or auth.role() = 'authenticated' without auth.uid() / auth.jwt() tenant isolation).",
       diffRemove: "- CREATE POLICY wallets_open_read ON public.wallets FOR SELECT USING (true);",
       diffAdd: "+ CREATE POLICY wallets_isolation ON public.wallets FOR SELECT USING (auth.uid() = user_id);"
     });
@@ -1284,29 +1493,33 @@ function runSqlLinter(codeOverride, presetOverride) {
     );
   }
 
-  if (/SECURITY\s+DEFINER/i.test(norm)) {
-    const lacksSearchPath = !/SET\s+search_path\s*=/i.test(norm);
-    const lacksAuthUid = !/auth\.uid\s*\(/i.test(norm) || !/FUNCTION[\s\S]*?auth\.uid\s*\(/i.test(sql);
-    if (lacksSearchPath || lacksAuthUid) {
+  const hasSecDef = statements.some((stmt) => /\bSECURITY\s+DEFINER\b/i.test(stmt));
+  if (hasSecDef) {
+    const hasSearchPath = statements.some((stmt) => /\bSET\s+search_path\s*=/i.test(stmt));
+    const fnIdx = cleanSql.search(/\bFUNCTION\b/i);
+    const hasAuthUidInFn = fnIdx !== -1 && /\bauth\.uid\s*\(/i.test(cleanSql.slice(fnIdx));
+    const hasRevokePublic = statements.some((stmt) =>
+      /\bREVOKE\s+(?:EXECUTE|ALL(?:\s+PRIVILEGES)?)\s+ON\s+FUNCTION\b/i.test(stmt) &&
+      /\bFROM\s+[^;]*?\bPUBLIC\b/i.test(stmt)
+    );
+    if (!hasSearchPath || (!hasAuthUidInFn && !hasRevokePublic)) {
       findings.push({
         sev: "CRITICAL",
         title: "Unpinned SECURITY DEFINER RPC allows privilege escalation",
         code: "CHECK 5 · SECURITY_DEFINER_WITHOUT_AUTH_OR_SEARCH_PATH",
         table: "SECURITY DEFINER RPC",
-        line: lineOfPattern(sql, /SECURITY\s+DEFINER/i),
-        msg: "SECURITY DEFINER function bypasses RLS without SET search_path = public, pg_temp or explicit auth.uid() caller binding (privilege escalation / IDOR risk).",
+        line: lineOfPattern(cleanSql, /SECURITY\s+DEFINER/i),
+        msg: "SECURITY DEFINER function bypasses RLS without SET search_path = public, pg_temp or explicit auth.uid() / REVOKE EXECUTE FROM PUBLIC caller isolation (privilege escalation / IDOR risk).",
         diffRemove: "- RETURNS void LANGUAGE plpgsql SECURITY DEFINER AS $",
         diffAdd: "+ RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $ -- + IF auth.uid() IS DISTINCT FROM target_user_id THEN RAISE EXCEPTION 'forbidden'; END IF;"
       });
       patchLines.push(
-        "-- 5. Pin search_path and enforce auth.uid() inside SECURITY DEFINER RPCs:",
+        "-- 5. Pin search_path and enforce auth.uid() or REVOKE FROM PUBLIC on SECURITY DEFINER RPCs:",
         "-- ALTER FUNCTION public.<fn_name> SET search_path = public, pg_temp;",
         ""
       );
     }
   }
-
-  patchLines.push("COMMIT;");
 
   let patchOutputText = "";
   if (findings.length === 0) {
@@ -1322,7 +1535,7 @@ function runSqlLinter(codeOverride, presetOverride) {
       "-- to unlock the zero-downtime NOT VALID + VALIDATE CONSTRAINT + CREATE UNIQUE INDEX CONCURRENTLY remediation script."
     ].join("\n");
   } else {
-    patchOutputText = patchLines.join("\n");
+    patchOutputText = patchLines.join("\n").trimEnd();
   }
 
   if (!isReactMounted()) {
@@ -1339,14 +1552,22 @@ function runSqlLinter(codeOverride, presetOverride) {
               '<div class="finding-head"><span class="sev ' +
               (f.sev === "HIGH" ? "sev-high" : "") +
               '">' +
-              f.sev +
+              escapeHtmlSafe(f.sev) +
               "</span><strong>" +
-              f.code +
+              escapeHtmlSafe(f.code) +
               '</strong> <span class="finding-table">(' +
-              f.table +
+              escapeHtmlSafe(f.table) +
               ")</span></div>" +
               '<div class="finding-msg">' +
-              f.msg +
+              escapeHtmlSafe(f.msg) +
+              "</div>" +
+              '<div class="code-diff">' +
+              '<div class="diff-del">' +
+              escapeHtmlSafe(f.diffRemove) +
+              "</div>" +
+              '<div class="diff-add">' +
+              escapeHtmlSafe(f.diffAdd) +
+              "</div>" +
               "</div>" +
               "</div>"
           )
@@ -1378,9 +1599,10 @@ function copyPatch() {
       next.licenseStatusKind = "warn";
       next.licenseStatusText = msg;
       next.licenseStatusHtml = html;
+      next.polarNotice = null;
       next.licenseDrawerOpen = true;
     });
-    updateLicenseDom(html, "", false);
+    updateLicenseDom(html, "PRO LICENSE REQUIRED", false);
     return false;
   }
   const el = !isReactMounted() ? getElSafe("patch-output") : null;
@@ -1400,9 +1622,10 @@ function downloadPatch() {
       next.licenseStatusKind = "warn";
       next.licenseStatusText = msg;
       next.licenseStatusHtml = html;
+      next.polarNotice = null;
       next.licenseDrawerOpen = true;
     });
-    updateLicenseDom(html, "", false);
+    updateLicenseDom(html, "PRO LICENSE REQUIRED", false);
     return false;
   }
   const el = !isReactMounted() ? getElSafe("patch-output") : null;
@@ -1580,11 +1803,29 @@ if (typeof window !== "undefined") {
     },
     runChaosSimulation,
     setChaosParams: (partial) => {
+      const p = partial && typeof partial === "object" ? partial : {};
       const merged = {
-        planPriceCents: partial.planPriceCents ?? __state.chaos.planPriceCents,
-        planCredits: partial.planCredits ?? __state.chaos.planCredits,
-        monthlySubs: partial.monthlySubs ?? __state.chaos.monthlySubs,
-        quarantineThresholdCents: partial.quarantineThresholdCents ?? __state.chaos.quarantineThresholdCents
+        planPriceCents:
+          p.planPriceCents !== undefined
+            ? sanitizePositiveSafeInt(p.planPriceCents, __state.chaos.planPriceCents, 1, 100000000)
+            : __state.chaos.planPriceCents,
+        planCredits:
+          p.planCredits !== undefined
+            ? sanitizePositiveSafeInt(p.planCredits, __state.chaos.planCredits, 1, 100000000)
+            : __state.chaos.planCredits,
+        monthlySubs:
+          p.monthlySubs !== undefined
+            ? sanitizeClampedSubsInt(p.monthlySubs, __state.chaos.monthlySubs)
+            : __state.chaos.monthlySubs,
+        quarantineThresholdCents:
+          p.quarantineThresholdCents !== undefined
+            ? sanitizePositiveSafeInt(
+                p.quarantineThresholdCents,
+                __state.chaos.quarantineThresholdCents,
+                1,
+                100000000
+              )
+            : __state.chaos.quarantineThresholdCents
       };
       runChaosSimulation(__state.chaos.filter, merged);
     },

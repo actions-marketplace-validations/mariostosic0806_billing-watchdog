@@ -92,6 +92,7 @@ export default function App() {
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.metaKey || e.ctrlKey || e.altKey) return;
+      if (state.licenseDrawerOpen || document.querySelector('[role="dialog"]')) return;
       const target = e.target;
       if (
         target instanceof HTMLElement &&
@@ -109,7 +110,7 @@ export default function App() {
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, []);
+  }, [state.licenseDrawerOpen]);
 
   const ticks = state.chaos.oscilloscopeTicks;
   const activeTick = ticks[Math.min(Math.max(playheadIndex, 0), Math.max(ticks.length - 1, 0))];
@@ -213,7 +214,7 @@ export default function App() {
                 Deterministic firewall for Stripe &amp; Postgres credit ledgers.
               </h1>
               <p className="mt-2 max-w-[64ch] text-[13.5px] sm:text-[14px] leading-relaxed text-[#47453F]">
-                Replay concurrent webhook and LLM stream bursts in browser memory, audit your schema or TypeScript routes with zero credential uploads, and deploy deterministic state-machine protection in your own CI.
+                Zero-custody Stripe ↔ Postgres REPEATABLE READ drift reconciler, pre-flight LLM stream credit holds, and offline schema/route CI gate.
               </p>
             </div>
 

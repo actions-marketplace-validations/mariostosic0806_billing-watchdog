@@ -101,11 +101,15 @@ export function StormRecorderView({
               min={10}
               max={100000}
               value={chaos.monthlySubs}
-              onChange={(e) =>
+              onChange={(e) => {
+                const parsed = parseInt(e.target.value, 10);
+                const safeSubs = Number.isFinite(parsed)
+                  ? Math.min(100000, Math.max(10, parsed))
+                  : 500;
                 kernel.setChaosParams({
-                  monthlySubs: Math.max(10, parseInt(e.target.value, 10) || 500),
-                })
-              }
+                  monthlySubs: safeSubs,
+                });
+              }}
               className="h-9 rounded-[3px] border border-[#C5BEB1] bg-[#FCFBF8] px-2.5 font-mono text-[16px] sm:text-[12.5px] text-[#141413] tabular-nums"
             />
           </label>

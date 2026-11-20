@@ -39,10 +39,12 @@ jobs:
             npm run lint-sql:example
             npm run verify-ci:demo
           else
+            npm --prefix portal ci --no-audit --no-fund
+            npx --prefix portal tsc --noEmit
             node -e '
               const fs = require("node:fs");
               const assert = require("node:assert/strict");
-              for (const page of ["docs/index.html", "docs/terms.html", "docs/privacy.html", "docs/refund-policy.html", "docs/calculator/index.html", "docs/saferevert/index.html", "action.yml", "examples/bad-migration.sql", "examples/billing-watchdog.yml", "skills/stripe-supabase-billing-guard/SKILL.md"]) {
+              for (const page of ["docs/index.html", "docs/terms.html", "docs/privacy.html", "docs/refund-policy.html", "action.yml", "examples/bad-migration.sql", "examples/billing-watchdog.yml", "skills/stripe-supabase-billing-guard/SKILL.md"]) {
                 assert.ok(fs.existsSync(page), "Missing public artifact: " + page);
               }
               const html = fs.readFileSync("docs/index.html", "utf8");

@@ -14,21 +14,55 @@ import {
   mkdirSync,
   readdirSync,
   readFileSync,
+  realpathSync,
   statSync,
   writeFileSync,
 } from "node:fs";
 import { basename, dirname, extname, join, posix, relative, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
 const SARIF_SCHEMA_URI = "https://json.schemastore.org/sarif-2.1.0.json";
 const CONTROL_AND_BIDI_RE =
   /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f\u200b-\u200f\u202a-\u202e\u2060-\u206f\ufeff]/g;
 
-function sanitizeUntrustedSnippet(raw, maxLength = 240) {
+const PUBLIC_CATALOG_TABLE_NAMES = new Set([
+  "plans",
+  "pricing_plans",
+  "public_profiles",
+  "blog_posts",
+  "announcements",
+  "changelog",
+  "products",
+]);
+
+const POISONED_MCP_DESCRIPTION_RE =
+  /<\s*important\s*>|<\s*system\b|<\|im_start\|>|\[INST\]|<!--[\s\S]*?-->|\bignore\s+(?:all\s+)?(?:previous|prior)\s+instructions\b|\bdo\s+not\s+mention\s+this\s+to\s+the\s+user\b|~\/\.ssh\/|\.env\b|\bSUPABASE_SERVICE_ROLE_KEY\b|[\u200b-\u200f\u202a-\u202e\ufeff]/i;
+
+const UNTRUSTED_INPUT_TOOL_RE =
+  /(?:^|[^a-z0-9])(?:fetch_url|scrape|browse|read_email|read_issue|github_issue|web_search|read_webpage|webhook_payload)(?:$|[^a-z0-9]|_)/i;
+const SENSITIVE_READ_TOOL_RE =
+  /(?:^|[^a-z0-9])(?:query_db|execute_sql|read_secret|list_customers|read_env|read_file|supabase_admin|service_role)(?:$|[^a-z0-9]|_)/i;
+const EXTERNAL_EGRESS_TOOL_RE =
+  /(?:^|[^a-z0-9])(?:send_email|post_webhook|http_post|send_slack|upload_url|create_comment|curl|fetch_post)(?:$|[^a-z0-9]|_)/i;
+
+const PUBLIC_USAGE = `Usage:
+  node scripts/public-ci-gate.mjs lint-sql <file.sql|directory>... [--sql-file <path>] [--sarif-out <path>] [--agent-fix-out <path>] [--no-fail-on-critical]
+  node scripts/public-ci-gate.mjs lint-code <file.ts|directory>... [--code-dir <path>] [--sarif-out <path>] [--agent-fix-out <path>] [--no-fail-on-critical]
+  node scripts/public-ci-gate.mjs verify-ci [--sql-file <path>] [--code-dir <path>] [--mcp-manifest <path>] [--mcp-lock <path>] [--sarif-out <path>] [--agent-fix-out <path>] [--dry-run] [--no-fail-on-critical]`;
+
+export class UsageError extends Error {
+  constructor(message) {
+    super(message);
+    this.name = "UsageError";
+  }
+}
+
+export function sanitizeUntrustedSnippet(raw, maxLength = 240) {
   if (!raw) return "";
   const cleaned = String(raw)
     .replace(CONTROL_AND_BIDI_RE, "")
     .replace(/\r?\n+/g, " ")
-    .replace(/```+/g, "'''")
+    .replace(/`+/g, "'")
     .replace(/~~~+/g, "---")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
@@ -38,7 +72,7 @@ function sanitizeUntrustedSnippet(raw, maxLength = 240) {
   return `${cleaned.slice(0, Math.max(0, maxLength - 3))}...`;
 }
 
-function buildPublicAgentFixPacket(command, findings, evaluatedAtUtc) {
+export function buildPublicAgentFixPacket(command, findings, evaluatedAtUtc) {
   const sorted = [...findings].sort((a, b) => {
     const rank = (s) => (s === "CRITICAL" ? 0 : 1);
     const diff = rank(a.severity) - rank(b.severity);
@@ -96,10 +130,10 @@ function buildPublicAgentFixPacket(command, findings, evaluatedAtUtc) {
   return lines.join("\n");
 }
 
-function collectFiles(targetPath, extensions) {
+function collectFilesFromSinglePath(targetPath, extensions) {
   const abs = resolve(targetPath);
   if (!existsSync(abs)) {
-    throw new Error(`Input path does not exist: ${targetPath}`);
+    throw new UsageError(`Input path does not exist: ${targetPath}`);
   }
   const st = statSync(abs);
   if (st.isFile()) return [abs];
@@ -108,10 +142,17 @@ function collectFiles(targetPath, extensions) {
     a.name.localeCompare(b.name)
   );
   for (const ent of entries) {
-    if (ent.name === "node_modules" || ent.name === ".git" || ent.name === "dist") continue;
+    if (
+      ent.name === "node_modules" ||
+      ent.name === ".git" ||
+      ent.name === ".next" ||
+      ent.name === "dist"
+    ) {
+      continue;
+    }
     const child = join(abs, ent.name);
     if (ent.isDirectory()) {
-      out.push(...collectFiles(child, extensions));
+      out.push(...collectFilesFromSinglePath(child, extensions));
     } else if (extensions.includes(extname(ent.name).toLowerCase())) {
       out.push(child);
     }
@@ -119,18 +160,34 @@ function collectFiles(targetPath, extensions) {
   return out;
 }
 
+function collectFiles(targetPaths, extensions) {
+  const paths = Array.isArray(targetPaths) ? targetPaths : [targetPaths];
+  const files = [];
+  for (const p of paths) {
+    files.push(...collectFilesFromSinglePath(p, extensions));
+  }
+  return [...new Set(files)];
+}
+
 function escapeRegExp(literal) {
   return String(literal).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function stripSqlCommentsPreservingLines(sql) {
-  return sql
+  return String(sql)
     .replace(/--[^\r\n]*/g, (m) => " ".repeat(m.length))
     .replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\r\n]/g, " "));
 }
 
 function stripSqlComments(sql) {
   return stripSqlCommentsPreservingLines(sql).replace(/\s+/g, " ").trim();
+}
+
+function stripJsCommentsPreservingLines(code) {
+  return String(code).replace(
+    /(["'`])(?:\\[\s\S]|(?!\1)[\s\S])*?\1|\/\*[\s\S]*?\*\/|\/\/[^\r\n]*/g,
+    (match, quote) => (quote ? match : match.replace(/[^\r\n]/g, " "))
+  );
 }
 
 function toRepoRelativePosixUri(filePath, repoRoot = process.cwd()) {
@@ -201,20 +258,47 @@ function locateTableOrColumnInSqlFiles(loadedSqlFiles, tableName, columnName) {
   };
 }
 
-function lintPublicSqlFiles(sqlFilePaths) {
-  const loadedSqlFiles = sqlFilePaths.map((filePath) => ({
-    filePath,
-    content: readFileSync(filePath, "utf8"),
-  }));
+function hasNonNegativeBalanceCheck(normSql) {
+  const checkRe =
+    /\bCHECK\s*\(\s*\(*\s*(?:(?:(?:"[a-zA-Z0-9_]+"|[a-zA-Z0-9_]+)\.)?(?:"([a-zA-Z0-9_]+)"|([a-zA-Z0-9_]+))(?:::[\s\w()[\],]+)?\s*\)*\s*(?:>=\s*0|>\s*-1)\b|0\s*<=\s*(?:(?:"[a-zA-Z0-9_]+"|[a-zA-Z0-9_]+)\.)?(?:"([a-zA-Z0-9_]+)"|([a-zA-Z0-9_]+)))/gi;
+  let m;
+  while ((m = checkRe.exec(normSql)) !== null) {
+    const ident = (m[1] || m[2] || m[3] || m[4] || "").toLowerCase();
+    if (ident.includes("balance")) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function hasUnconditionalStripeEventUnique(normSql) {
+  for (const stmt of normSql.split(";")) {
+    if (!/\bstripe_event_id\b/i.test(stmt)) continue;
+    if (/\bCREATE\s+UNIQUE\s+INDEX\b/i.test(stmt)) {
+      if (!/\bWHERE\b/i.test(stmt)) return true;
+      continue;
+    }
+    if (
+      /\bstripe_event_id"?\s+[a-zA-Z0-9_]+(?:\s+NOT\s+NULL)?\s+UNIQUE\b/i.test(stmt) ||
+      /\bUNIQUE\s*(?:NULLS\s+(?:NOT\s+)?DISTINCT\s*)?\([^)]*\bstripe_event_id\b[^)]*\)/i.test(stmt)
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
+export function lintLoadedPublicSqlFiles(loadedSqlFiles) {
   const mergedSql = loadedSqlFiles.map((f) => f.content).join("\n;\n");
-  const norm = stripSqlComments(mergedSql);
+  const mergedCleanPreservingLines = stripSqlCommentsPreservingLines(mergedSql);
+  const norm = mergedCleanPreservingLines.replace(/\s+/g, " ").trim();
+  if (!norm) {
+    return [];
+  }
   const findings = [];
 
   if (/\bCREATE\s+TABLE\b/i.test(norm)) {
-    if (
-      /\bwallets\b/i.test(norm) &&
-      !/CHECK\s*\(\s*[a-zA-Z0-9_."]*balance[a-zA-Z0-9_."]*\s*>=\s*0\s*\)/i.test(norm)
-    ) {
+    if (/\bwallets\b/i.test(norm) && !hasNonNegativeBalanceCheck(norm)) {
       const loc = locateTableOrColumnInSqlFiles(loadedSqlFiles, "wallets", "credits_balance");
       findings.push({
         severity: "CRITICAL",
@@ -226,12 +310,7 @@ function lintPublicSqlFiles(sqlFilePaths) {
         snippet: loc.snippet,
       });
     }
-    if (
-      /\bstripe_event_id\b/i.test(norm) &&
-      !/stripe_event_id[^,)]*\bUNIQUE\b/i.test(norm) &&
-      !/UNIQUE\s*\([^)]*stripe_event_id[^)]*\)/i.test(norm) &&
-      !/CREATE\s+UNIQUE\s+INDEX\b(?![^;]*\bWHERE\b)[^;]*\bstripe_event_id\b/i.test(norm)
-    ) {
+    if (/\bstripe_event_id\b/i.test(norm) && !hasUnconditionalStripeEventUnique(norm)) {
       const loc = locateTableOrColumnInSqlFiles(
         loadedSqlFiles,
         "credit_transactions",
@@ -249,23 +328,37 @@ function lintPublicSqlFiles(sqlFilePaths) {
     }
     for (const tbl of ["users", "subscriptions", "wallets", "credit_transactions"]) {
       const created = new RegExp(
-        `CREATE\\s+TABLE\\s+(?:IF\\s+NOT\\s+EXISTS\\s+)?(?:public\\.)?${tbl}\\b`,
+        `\\bCREATE\\s+TABLE\\s+(?:IF\\s+NOT\\s+EXISTS\\s+)?(?:"?public"?\\.)?"?${tbl}"?\\b`,
         "i"
       ).test(norm);
       if (!created) continue;
-      const enabled = new RegExp(
-        `ALTER\\s+TABLE\\s+(?:ONLY\\s+)?(?:public\\.)?${tbl}\\s+ENABLE\\s+ROW\\s+LEVEL\\s+SECURITY`,
+      const enableRe = new RegExp(
+        `\\bALTER\\s+TABLE\\s+(?:IF\\s+EXISTS\\s+)?(?:ONLY\\s+)?(?:"?public"?\\.)?"?${tbl}"?\\s+ENABLE\\s+ROW\\s+LEVEL\\s+SECURITY\\b`,
+        "gi"
+      );
+      const disableRe = new RegExp(
+        `\\bALTER\\s+TABLE\\s+(?:IF\\s+EXISTS\\s+)?(?:ONLY\\s+)?(?:"?public"?\\.)?"?${tbl}"?\\s+DISABLE\\s+ROW\\s+LEVEL\\s+SECURITY\\b`,
+        "gi"
+      );
+      let lastEnable = -1;
+      let lastDisable = -1;
+      let em;
+      while ((em = enableRe.exec(norm)) !== null) lastEnable = em.index;
+      while ((em = disableRe.exec(norm)) !== null) lastDisable = em.index;
+      const rlsActive = lastEnable >= 0 && lastEnable > lastDisable;
+
+      const policyOnTblRe = new RegExp(
+        `\\bON\\s+(?:"?public"?\\.)?"?${tbl}"?\\b`,
         "i"
-      ).test(norm);
-      const disabled = new RegExp(
-        `ALTER\\s+TABLE\\s+(?:ONLY\\s+)?(?:public\\.)?${tbl}\\s+DISABLE\\s+ROW\\s+LEVEL\\s+SECURITY`,
-        "i"
-      ).test(norm);
-      const hasPolicy = new RegExp(
-        `CREATE\\s+POLICY\\s+[^;]+\\s+ON\\s+(?:public\\.)?${tbl}\\b`,
-        "i"
-      ).test(norm);
-      if (!enabled || disabled || !hasPolicy) {
+      );
+      let hasPolicy = false;
+      for (const stmt of norm.split(";")) {
+        if (/\bCREATE\s+POLICY\b/i.test(stmt) && policyOnTblRe.test(stmt)) {
+          hasPolicy = true;
+          break;
+        }
+      }
+      if (!rlsActive || !hasPolicy) {
         const loc = locateTableOrColumnInSqlFiles(loadedSqlFiles, tbl, undefined);
         findings.push({
           severity: "HIGH",
@@ -280,24 +373,52 @@ function lintPublicSqlFiles(sqlFilePaths) {
     }
   }
 
+  const ownerFilterRe =
+    /\bauth\.(?:uid|jwt)\s*\(|\brequest\.jwt\.claim|\bcurrent_setting\s*\(\s*'request\.jwt\.claims'/i;
+
   for (const file of loadedSqlFiles) {
     const clean = stripSqlCommentsPreservingLines(file.content);
+
+    // 1A. Inspect CREATE POLICY statements (supporting quoted policy names with spaces)
     const policyRegex =
-      /CREATE\s+POLICY\s+([a-zA-Z0-9_"]+)\s+ON\s+([a-zA-Z0-9_."]+)[^;]*?\b(?:USING|WITH\s+CHECK)\s*\(([^;]+)\)/gi;
+      /\bCREATE\s+POLICY\s+(?:"((?:[^"]|"")+)"|([a-zA-Z0-9_]+))\s+ON\s+(?:(?:"?([a-zA-Z0-9_]+)"?\.)?"?([a-zA-Z0-9_]+)"?)([\s\S]*?)(?:;|$)/gi;
     let m;
     while ((m = policyRegex.exec(clean)) !== null) {
-      const [, policyName, tableName, expr] = m;
-      const isPermissiveTrue = /^\s*true\s*$/i.test(expr.trim());
-      const isBroadRoleOnly =
-        /auth\.role\s*\(\s*\)\s*=\s*'authenticated'/i.test(expr) &&
-        !/auth\.(?:uid|jwt)\s*\(/i.test(expr);
-      if (isPermissiveTrue || isBroadRoleOnly) {
+      const policyName = m[1] ? m[1].replace(/""/g, '"') : m[2] || "unnamed_policy";
+      const schemaName = (m[3] || "public").toLowerCase();
+      const tableName = (m[4] || "").toLowerCase();
+      const clause = m[5] || "";
+
+      if (!tableName || PUBLIC_CATALOG_TABLE_NAMES.has(tableName)) continue;
+      if (/\bTO\s+service_role\b/i.test(clause)) continue;
+
+      const usingMatch = /\bUSING\s*\(([\s\S]*?)\)(?:\s*WITH\s+CHECK|\s*$)/i.exec(clause);
+      const checkMatch = /\bWITH\s+CHECK\s*\(([\s\S]*?)\)\s*$/i.exec(clause);
+      const usingExpr = (usingMatch?.[1] ?? "").trim();
+      const checkExpr = (checkMatch?.[1] ?? "").trim();
+      const combinedExpr = `${usingExpr} ${checkExpr}`.trim();
+      if (!combinedExpr) continue;
+
+      const isPermissiveTrue =
+        /^\s*\(*\s*true\s*\)*\s*$/i.test(usingExpr) ||
+        /^\s*\(*\s*true\s*\)*\s*$/i.test(checkExpr) ||
+        /\b1\s*=\s*1\b/.test(combinedExpr);
+      const isBroadRoleUsing =
+        Boolean(usingExpr) &&
+        /\bauth\.role\s*\(\s*\)\s*=\s*'authenticated'/i.test(usingExpr) &&
+        !ownerFilterRe.test(usingExpr);
+      const isBroadRoleCheck =
+        Boolean(checkExpr) &&
+        /\bauth\.role\s*\(\s*\)\s*=\s*'authenticated'/i.test(checkExpr) &&
+        !ownerFilterRe.test(checkExpr);
+
+      if (isPermissiveTrue || isBroadRoleUsing || isBroadRoleCheck) {
         const loc = lineAndSnippetAtOffset(file.content, m.index);
         findings.push({
           severity: "CRITICAL",
           code: "RLS_PERMISSIVE_NO_TENANT_FILTER",
-          target: `${tableName} (${policyName})`,
-          message: `Permissive RLS policy ${policyName} on ${tableName} allows cross-tenant access without auth.uid() / auth.jwt().`,
+          target: `${schemaName}.${tableName} (${policyName})`,
+          message: `Permissive RLS policy ${policyName} on ${schemaName}.${tableName} allows cross-tenant access without auth.uid() / auth.jwt().`,
           filePath: file.filePath,
           startLine: loc.startLine,
           snippet: loc.snippet,
@@ -305,27 +426,52 @@ function lintPublicSqlFiles(sqlFilePaths) {
       }
     }
 
-    const secDefMatch = /\bSECURITY\s+DEFINER\b/i.exec(clean);
-    if (secDefMatch) {
-      const loc = lineAndSnippetAtOffset(file.content, secDefMatch.index);
-      if (!/SET\s+search_path\s*=/i.test(clean)) {
+    // 1B. Inspect CREATE [OR REPLACE] FUNCTION ... SECURITY DEFINER per function body
+    const fnRe =
+      /\bCREATE\s+(?:OR\s+REPLACE\s+)?FUNCTION\s+(?:(?:"?([a-zA-Z0-9_]+)"?\.)?"?([a-zA-Z0-9_]+)"?)\s*\(([^)]*)\)([\s\S]*?)(?:\$\$[\s\S]*?\$\$|\$[a-zA-Z0-9_]+\$[\s\S]*?\$[a-zA-Z0-9_]+\$)([\s\S]{0,300}?)(?:;|$)/gi;
+    let fnMatch;
+    while ((fnMatch = fnRe.exec(clean)) !== null) {
+      const fullStmt = fnMatch[0];
+      if (!/\bSECURITY\s+DEFINER\b/i.test(fullStmt)) continue;
+      const schemaName = (fnMatch[1] || "public").toLowerCase();
+      const fnName = fnMatch[2] || "unnamed_fn";
+      const argsText = fnMatch[3] || "";
+      const loc = lineAndSnippetAtOffset(file.content, fnMatch.index);
+
+      if (!/\bSET\s+search_path\s*=/i.test(fullStmt)) {
         findings.push({
           severity: "HIGH",
           code: "SECURITY_DEFINER_MISSING_SEARCH_PATH",
-          target: "SECURITY DEFINER RPC",
-          message: "SECURITY DEFINER function omits explicit SET search_path.",
+          target: `${schemaName}.${fnName}()`,
+          message: `SECURITY DEFINER function ${schemaName}.${fnName}() omits explicit SET search_path.`,
           filePath: file.filePath,
           startLine: loc.startLine,
           snippet: loc.snippet,
         });
       }
-      if (!/auth\.uid\s*\(/i.test(clean)) {
+
+      const isTriggerFn = /\bRETURNS\s+trigger\b/i.test(fullStmt);
+      const acceptsCallerOwnerParam =
+        /\b(?:p_user_id|target_user_id|user_id|p_tenant_id|tenant_id|org_id|p_org_id)\b/i.test(
+          argsText
+        );
+      const checksAuthUid =
+        /\bauth\.(?:uid|jwt)\s*\(|\brequest\.jwt\.claim/i.test(fullStmt);
+      const restrictedToServiceRole = new RegExp(
+        `\\bREVOKE\\s+(?:EXECUTE|ALL(?:\\s+PRIVILEGES)?)\\s+ON\\s+FUNCTION\\s+(?:"?${escapeRegExp(
+          schemaName
+        )}"?\\.)?"?${escapeRegExp(
+          fnName
+        )}"?\\s*(?:\\([^;]*?\\))?\\s*FROM\\s+[^;]*\\bPUBLIC\\b`,
+        "i"
+      ).test(mergedCleanPreservingLines);
+
+      if (!isTriggerFn && acceptsCallerOwnerParam && !checksAuthUid && !restrictedToServiceRole) {
         findings.push({
           severity: "CRITICAL",
           code: "SECURITY_DEFINER_CALLER_ID_WITHOUT_AUTH_UID",
-          target: "SECURITY DEFINER RPC",
-          message:
-            "SECURITY DEFINER function executes privileged SQL without auth.uid() caller verification.",
+          target: `${schemaName}.${fnName}()`,
+          message: `SECURITY DEFINER function ${schemaName}.${fnName}() accepts caller user/tenant ID without auth.uid() verification or REVOKE ... FROM PUBLIC.`,
           filePath: file.filePath,
           startLine: loc.startLine,
           snippet: loc.snippet,
@@ -337,99 +483,296 @@ function lintPublicSqlFiles(sqlFilePaths) {
   return findings;
 }
 
-function lintPublicCodeFiles(filePaths) {
+export function lintPublicSqlFiles(sqlFilePaths) {
+  const loadedSqlFiles = sqlFilePaths.map((filePath) => ({
+    filePath,
+    content: readFileSync(filePath, "utf8"),
+  }));
+  return lintLoadedPublicSqlFiles(loadedSqlFiles);
+}
+
+export function lintPublicSqlText(sqlText, filePath = "migrations.sql") {
+  return lintLoadedPublicSqlFiles([{ filePath, content: String(sqlText ?? "") }]);
+}
+
+export function lintPublicCodeText(src, fp = "route.ts") {
   const findings = [];
-  for (const fp of filePaths) {
-    const src = readFileSync(fp, "utf8");
-    const isWebhook =
-      /stripe|webhook/i.test(fp) || /checkout\.session\.completed|invoice\.paid/.test(src);
-    const jsonCall = /\b(?:req|request)\.json\s*\(\s*\)/.exec(src);
-    if (
-      isWebhook &&
-      jsonCall &&
-      !/constructEvent|verifyStripeWebhookSignature/.test(src)
-    ) {
-      const loc = lineAndSnippetAtOffset(src, jsonCall.index);
+  if (!src || !String(src).trim()) return findings;
+  const lowerPath = fp.toLowerCase().replace(/\\/g, "/");
+  const isPrisma = lowerPath.endsWith(".prisma") || /\bmodel\s+\w+\s*\{/.test(src);
+
+  if (isPrisma) {
+    const cleanPrisma = String(src).replace(/\/\/[^\r\n]*/g, (m) => " ".repeat(m.length));
+    const eventFieldMatch =
+      /\b(stripeEventId|stripe_event_id)\s+String\b(?![^\r\n]*@unique)/i.exec(cleanPrisma);
+    if (eventFieldMatch && eventFieldMatch.index !== undefined) {
+      const loc = lineAndSnippetAtOffset(src, eventFieldMatch.index);
       findings.push({
         severity: "CRITICAL",
-        code: "MISSING_STRIPE_SIGNATURE_VERIFICATION",
+        code: "PRISMA_MISSING_BILLING_CONSTRAINTS",
         target: fp,
-        message:
-          "Webhook handler parses req.json() without raw-body Stripe-Signature HMAC verification.",
+        message: "Prisma stripeEventId column is missing @unique idempotency constraint.",
         filePath: fp,
         startLine: loc.startLine,
         snippet: loc.snippet,
       });
     }
-    const streamCall = /\bstreamText\s*\(/.exec(src);
-    if (
-      streamCall &&
-      /\bonFinish\b/.test(src) &&
-      !/reserveCreditsForStream|reserveStreamCredits|executeGuardedAiStream/.test(src)
-    ) {
-      const loc = lineAndSnippetAtOffset(src, streamCall.index);
-      findings.push({
-        severity: "CRITICAL",
-        code: "UNRESERVED_STREAMING_LLM_DEDUCTION",
-        target: fp,
-        message: "Deducts LLM credits inside onFinish without a pre-flight HOLD reservation.",
-        filePath: fp,
-        startLine: loc.startLine,
-        snippet: loc.snippet,
-      });
-    }
-    const llmMatch =
-      /\b(?:streamText|generateText|generateObject|streamObject)\s*\(/.exec(src) ||
-      /\b(?:openai|anthropic)\.[a-zA-Z0-9_.]*create\s*\(/.exec(src);
-    const hasAuth =
-      /\b(?:getServerSession|auth\.getUser|currentUser|requireUser|verifySession)\b/.test(src);
-    const hasHoldOrLimit =
-      /\b(?:ratelimit|rateLimit|Ratelimit|reserveCreditsForStream|reserveStreamCredits|executeGuardedAiStream)\b/.test(
-        src
+    const prismaFloatMatch =
+      /\b(credits|creditsBalance|credits_balance|balance|price|amount|amountPaid)\s+(Float|Decimal)\b/i.exec(
+        cleanPrisma
       );
-    if (llmMatch && (!hasAuth || !hasHoldOrLimit)) {
-      const loc = lineAndSnippetAtOffset(src, llmMatch.index);
+    if (prismaFloatMatch && prismaFloatMatch.index !== undefined) {
+      const loc = lineAndSnippetAtOffset(src, prismaFloatMatch.index);
       findings.push({
-        severity: "CRITICAL",
-        code: "DENIAL_OF_WALLET_UNGUARDED_AI_ROUTE",
+        severity: "HIGH",
+        code: "FLOATING_POINT_MONEY_ARITHMETIC",
+        target: fp,
+        message: "Prisma model stores money or credits as Float/Decimal instead of Int/BigInt.",
+        filePath: fp,
+        startLine: loc.startLine,
+        snippet: loc.snippet,
+      });
+    }
+    return findings;
+  }
+
+  const clean = stripJsCommentsPreservingLines(src);
+  if (!clean.trim()) return findings;
+
+  const isWebhook =
+    /checkout\.session\.completed|invoice\.(?:paid|payment_succeeded)|customer\.subscription\.|stripe-signature/i.test(
+      clean
+    ) || /stripe.*webhook|webhook.*stripe/i.test(lowerPath);
+  const hasSignatureVerifier =
+    /constructEvent\s*\(|constructEventAsync\s*\(|verifyStripeWebhookSignature\s*\(|verifyHeader\s*\(|handleRawWebhookHttp\s*\(/.test(
+      clean
+    );
+  const jsonCall = /\b(?:req|request)\.json\s*\(\s*\)/.exec(clean);
+  if (isWebhook && (!hasSignatureVerifier || jsonCall)) {
+    const loc = lineAndSnippetAtOffset(src, jsonCall?.index ?? 0);
+    findings.push({
+      severity: "CRITICAL",
+      code: "MISSING_STRIPE_SIGNATURE_VERIFICATION",
+      target: fp,
+      message:
+        "Webhook handler parses req.json() or omits raw-body Stripe-Signature HMAC verification.",
+      filePath: fp,
+      startLine: loc.startLine,
+      snippet: loc.snippet,
+    });
+  }
+
+  if (isWebhook) {
+    const hasCheckoutCompleted = /['"`]checkout\.session\.completed['"`]/.test(clean);
+    const hasInvoicePaid = /['"`]invoice\.(?:paid|payment_succeeded)['"`]/.test(clean);
+    const hasCanonicalGrantDedup =
+      /canonical_grant_key|canonicalGrantKey|settledGrantKeys|invoice_id.*ON\s+CONFLICT|processWebhookEvent/.test(
+        clean
+      );
+    if (hasCheckoutCompleted && hasInvoicePaid && !hasCanonicalGrantDedup) {
+      const m = /['"`]invoice\.(?:paid|payment_succeeded)['"`]/.exec(clean);
+      const loc = lineAndSnippetAtOffset(src, m?.index ?? 0);
+      findings.push({
+        severity: "HIGH",
+        code: "DUAL_WEBHOOK_GRANT_WITHOUT_CANONICAL_LOCK",
         target: fp,
         message:
-          "Paid LLM endpoint lacks caller session authentication or pre-flight rate/wallet hold.",
+          "Webhook handler processes both checkout.session.completed and invoice.paid without canonical invoice deduplication.",
         filePath: fp,
         startLine: loc.startLine,
         snippet: loc.snippet,
       });
     }
   }
+
+  const rmwMatch =
+    /\b(credits|credits_balance|creditsBalance|balance)\s*:\s*[a-zA-Z0-9_$.]+\.(credits|credits_balance|creditsBalance|balance)\s*[+-]\s*[a-zA-Z0-9_$.]+|\b[a-zA-Z0-9_$]+\.(credits|credits_balance|creditsBalance)\s*[+-]=\s*[a-zA-Z0-9_$.]+/.exec(
+      clean
+    );
+  if (
+    rmwMatch &&
+    rmwMatch.index !== undefined &&
+    !/WatchdogStateMachine|NaiveAiWebhookHandler/.test(clean)
+  ) {
+    const loc = lineAndSnippetAtOffset(src, rmwMatch.index);
+    findings.push({
+      severity: "CRITICAL",
+      code: "NON_ATOMIC_READ_MODIFY_WRITE_CREDITS",
+      target: fp,
+      message:
+        "Non-atomic JavaScript Read-Modify-Write credit mutation (`credits: wallet.credits +/- delta`).",
+      filePath: fp,
+      startLine: loc.startLine,
+      snippet: loc.snippet,
+    });
+  }
+
+  const streamCall =
+    /\b(?:streamText|streamObject)\s*\(|\bcompletions\.create\s*\([\s\S]{0,200}stream\s*:\s*true|\bmessages\.stream\s*\(/.exec(
+      clean
+    );
+  if (
+    streamCall &&
+    /\bonFinish|credits|deduct|consume/i.test(clean) &&
+    !/reserveCreditsForStream|reserveStreamCredits|executeGuardedAiStream|\/api\/ai\/reserve|holdCredits|reserve_credits/.test(
+      clean
+    )
+  ) {
+    const loc = lineAndSnippetAtOffset(src, streamCall.index);
+    findings.push({
+      severity: "CRITICAL",
+      code: "UNRESERVED_STREAMING_LLM_DEDUCTION",
+      target: fp,
+      message: "Deducts LLM credits inside onFinish without a pre-flight HOLD reservation.",
+      filePath: fp,
+      startLine: loc.startLine,
+      snippet: loc.snippet,
+    });
+  }
+
+  const jsFloatMatch = /\bparseFloat\s*\([^)]*(?:price|amount|cents|credit|balance)/i.exec(clean);
+  if (jsFloatMatch && jsFloatMatch.index !== undefined) {
+    const loc = lineAndSnippetAtOffset(src, jsFloatMatch.index);
+    findings.push({
+      severity: "HIGH",
+      code: "FLOATING_POINT_MONEY_ARITHMETIC",
+      target: fp,
+      message: "Floating-point parseFloat() used on monetary price or credit value.",
+      filePath: fp,
+      startLine: loc.startLine,
+      snippet: loc.snippet,
+    });
+  }
+
+  const isAiRouteFile =
+    /(?:^|\/)api\/(?:chat|agent|agents|completion|completions|generate|assistant|ai)(?:\/|\.)/i.test(
+      lowerPath
+    );
+  const llmMatch =
+    /\b(?:streamText|generateText|generateObject|streamObject)\s*\(/.exec(clean) ||
+    /\b(?:openai|anthropic)\s*\(|\bchat\.completions\.create\s*\(|\bmessages\.(?:create|stream)\s*\(/.exec(
+      clean
+    );
+  const hasAuth =
+    /\b(?:getServerSession|getUser|getSession|currentUser|requireUser|verifySession|requireAuth|verifyToken|jwtVerify|clerkMiddleware)\s*\(|(?<![.\w$])auth\s*\(/.test(
+      clean
+    );
+  const hasHoldOrLimit =
+    /\b(?:ratelimit|rateLimit|Ratelimit|rateLimiter|reserveCreditsForStream|reserveStreamCredits|executeGuardedAiStream|holdCredits|reserve_credits)\b/i.test(
+      clean
+    );
+  if (isAiRouteFile && llmMatch && (!hasAuth || !hasHoldOrLimit)) {
+    const loc = lineAndSnippetAtOffset(src, llmMatch.index);
+    findings.push({
+      severity: "CRITICAL",
+      code: "DENIAL_OF_WALLET_UNGUARDED_AI_ROUTE",
+      target: fp,
+      message:
+        "Paid LLM endpoint lacks caller session authentication or pre-flight rate/wallet hold.",
+      filePath: fp,
+      startLine: loc.startLine,
+      snippet: loc.snippet,
+    });
+  }
+
   return findings;
 }
 
-function canonicalSha256(obj) {
-  const norm = JSON.stringify(obj, Object.keys(obj).sort());
-  return createHash("sha256").update(norm, "utf8").digest("hex");
+export function lintPublicCodeFiles(filePaths) {
+  const findings = [];
+  for (const fp of filePaths) {
+    const src = readFileSync(fp, "utf8");
+    findings.push(...lintPublicCodeText(src, fp));
+  }
+  return findings;
 }
 
-function diffMcpManifest(manifestPath, lockPath) {
+export function canonicalJson(value) {
+  if (value === null || typeof value !== "object") {
+    return JSON.stringify(value);
+  }
+  if (Array.isArray(value)) {
+    return `[${value.map((v) => canonicalJson(v)).join(",")}]`;
+  }
+  const entries = Object.entries(value)
+    .filter(([, v]) => v !== undefined)
+    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+  return `{${entries.map(([k, v]) => `${JSON.stringify(k)}:${canonicalJson(v)}`).join(",")}}`;
+}
+
+function sha256Hex(input) {
+  return createHash("sha256").update(String(input), "utf8").digest("hex");
+}
+
+export function canonicalSha256(obj) {
+  return sha256Hex(canonicalJson(obj));
+}
+
+export function diffMcpManifest(manifestPath, lockPath) {
   const resolvedManifest = resolve(manifestPath);
+  if (!existsSync(resolvedManifest)) {
+    throw new UsageError(`MCP manifest not found: ${manifestPath}`);
+  }
   const rawManifest = readFileSync(resolvedManifest, "utf8");
-  const manifest = JSON.parse(rawManifest);
-  const tools = Array.isArray(manifest.tools) ? manifest.tools : [];
+  let manifest;
+  try {
+    manifest = JSON.parse(rawManifest);
+  } catch (err) {
+    throw new UsageError(
+      `MCP manifest ${manifestPath} is not valid JSON: ${err instanceof Error ? err.message : String(err)}`
+    );
+  }
+
+  let serverName = "workspace-mcp";
+  let tools;
+  if (Array.isArray(manifest)) {
+    tools = manifest;
+  } else if (manifest && typeof manifest === "object") {
+    if (manifest.tools !== undefined && !Array.isArray(manifest.tools)) {
+      throw new UsageError(`MCP manifest ${manifestPath}: "tools" must be an array.`);
+    }
+    serverName = String(manifest.serverName || serverName).trim() || serverName;
+    tools = manifest.tools ?? [];
+  } else {
+    throw new UsageError(`MCP manifest ${manifestPath} must be a JSON object or array.`);
+  }
+
+  let lock = null;
+  if (lockPath) {
+    const resolvedLock = resolve(lockPath);
+    if (!existsSync(resolvedLock)) {
+      throw new UsageError(`MCP lockfile not found: ${lockPath}`);
+    }
+    try {
+      lock = JSON.parse(readFileSync(resolvedLock, "utf8"));
+    } catch (err) {
+      throw new UsageError(
+        `MCP lockfile ${lockPath} is not valid JSON: ${err instanceof Error ? err.message : String(err)}`
+      );
+    }
+    if (!lock || typeof lock !== "object" || Array.isArray(lock)) {
+      throw new UsageError(`MCP lockfile ${lockPath} must be a JSON object.`);
+    }
+  }
+
+  const lockTools = Array.isArray(lock?.tools) ? lock.tools : [];
+  const lockMap = new Map(lockTools.map((lt) => [String(lt.name || ""), lt]));
+
   const findings = [];
-  const lock =
-    lockPath && existsSync(resolve(lockPath))
-      ? JSON.parse(readFileSync(resolve(lockPath), "utf8"))
-      : null;
-  const lockMap = new Map(
-    (lock?.tools ?? []).map((t) => [
-      String(t.name),
-      String(t.descriptionSha256 || t.toolSha256 || ""),
-    ])
-  );
+  let hasUntrustedInput = false;
+  let hasSensitiveRead = false;
+  let hasUngatedExternalEgress = false;
 
   for (const t of tools) {
     const toolName = String(t.name || "");
-    const desc = String(t.description || "");
-    const descHash = createHash("sha256").update(desc, "utf8").digest("hex");
+    const desc = String(t.description ?? "");
+    const descTrimmed = desc.trim();
+    const descHashRaw = sha256Hex(desc);
+    const descHashTrimmed = sha256Hex(descTrimmed);
+    const schemaHash = canonicalSha256(t.inputSchema ?? {});
+    const combinedHash = sha256Hex(`${toolName}\n${descHashTrimmed}\n${schemaHash}`);
+    const fullToolHash = canonicalSha256(t);
+
     const nameMatch = toolName
       ? new RegExp(`"${escapeRegExp(toolName)}"`).exec(rawManifest)
       : null;
@@ -437,29 +780,70 @@ function diffMcpManifest(manifestPath, lockPath) {
       ? lineAndSnippetAtOffset(rawManifest, nameMatch.index)
       : { startLine: 1, snippet: "" };
 
-    if (
-      /ignore\s+(?:all\s+)?(?:previous|prior)\s+instructions|<\s*system\b|[\u200b-\u200f\u202a-\u202e]/i.test(
-        desc
-      )
-    ) {
+    if (POISONED_MCP_DESCRIPTION_RE.test(desc)) {
       findings.push({
         severity: "CRITICAL",
         code: "MCP_TOOL_POISONING_DIRECTIVE",
         target: toolName,
-        message: `MCP tool '${toolName}' description contains prompt-injection or hidden Unicode control markers.`,
+        message: `MCP tool '${toolName}' description contains prompt-injection, credential-access, or hidden Unicode markers.`,
         filePath: resolvedManifest,
         startLine: loc.startLine,
         snippet: loc.snippet,
       });
     }
+
+    const textForClassify = `${toolName} ${desc}`;
+    if (t.annotations?.untrustedExternalInput || UNTRUSTED_INPUT_TOOL_RE.test(textForClassify)) {
+      hasUntrustedInput = true;
+    }
+    if (t.annotations?.sensitiveDataRead || SENSITIVE_READ_TOOL_RE.test(textForClassify)) {
+      hasSensitiveRead = true;
+    }
+    if (
+      (t.annotations?.externalNetworkEgress || EXTERNAL_EGRESS_TOOL_RE.test(textForClassify)) &&
+      !t.annotations?.requiresHumanConfirmation
+    ) {
+      hasUngatedExternalEgress = true;
+    }
+
     if (lockMap.has(toolName)) {
-      const prev = lockMap.get(toolName);
-      if (prev && prev !== descHash && prev !== canonicalSha256(t)) {
+      const pinned = lockMap.get(toolName);
+      let mutated = false;
+      if (pinned.combinedSha256 && String(pinned.combinedSha256) !== combinedHash) {
+        mutated = true;
+      }
+      if (pinned.schemaSha256 && String(pinned.schemaSha256) !== schemaHash) {
+        mutated = true;
+      }
+      if (pinned.toolSha256 && String(pinned.toolSha256) !== fullToolHash) {
+        mutated = true;
+      }
+      if (pinned.sha256 && String(pinned.sha256) !== fullToolHash) {
+        mutated = true;
+      }
+      if (
+        pinned.inputSchema !== undefined &&
+        canonicalSha256(pinned.inputSchema) !== schemaHash
+      ) {
+        mutated = true;
+      }
+      if (pinned.descriptionSha256) {
+        const expectedDesc = String(pinned.descriptionSha256);
+        if (
+          expectedDesc !== descHashRaw &&
+          expectedDesc !== descHashTrimmed &&
+          expectedDesc !== fullToolHash
+        ) {
+          mutated = true;
+        }
+      }
+
+      if (mutated) {
         findings.push({
           severity: "CRITICAL",
           code: "MCP_SILENT_DESCRIPTION_RUG_PULL",
           target: toolName,
-          message: `MCP tool '${toolName}' mutated after lockfile pinning.`,
+          message: `MCP tool '${toolName}' description or inputSchema mutated after lockfile pinning.`,
           filePath: resolvedManifest,
           startLine: loc.startLine,
           snippet: loc.snippet,
@@ -467,10 +851,24 @@ function diffMcpManifest(manifestPath, lockPath) {
       }
     }
   }
+
+  if (hasUntrustedInput && hasSensitiveRead && hasUngatedExternalEgress) {
+    findings.push({
+      severity: "CRITICAL",
+      code: "MCP_LETHAL_TRIFECTA_EXPOSED",
+      target: `${serverName}/*`,
+      message:
+        "Active MCP toolset simultaneously exposes (1) untrusted external content ingestion, (2) sensitive database/secret reads, and (3) ungated external network egress (Lethal Trifecta exfiltration path).",
+      filePath: resolvedManifest,
+      startLine: 1,
+      snippet: "",
+    });
+  }
+
   return findings;
 }
 
-function buildPublicSarifLog(findings, evaluatedAtUtc) {
+export function buildPublicSarifLog(findings, evaluatedAtUtc) {
   const ruleIndexById = new Map();
   const rules = [];
   for (const f of findings) {
@@ -542,55 +940,113 @@ function buildPublicSarifLog(findings, evaluatedAtUtc) {
   };
 }
 
-function parseArgs(argv) {
-  const command = argv[0] || "";
-  let sqlFile = "";
-  let codeDir = "";
+const VALUE_FLAGS = new Set([
+  "--config",
+  "--sql-file",
+  "--file",
+  "--code-dir",
+  "--mcp-manifest",
+  "--mcp-lock",
+  "--sarif-out",
+  "--agent-fix-out",
+]);
+
+const BOOLEAN_FLAGS = new Set([
+  "--fail-on-critical",
+  "--no-fail-on-critical",
+  "--dry-run",
+  "--help",
+  "-h",
+]);
+
+export function parseArgs(argv) {
+  let command = "";
+  let startIndex = 0;
+  if (argv[0] !== undefined && !argv[0].startsWith("-")) {
+    command = argv[0];
+    startIndex = 1;
+  }
+
+  const sqlPaths = [];
+  const codePaths = [];
   let mcpManifest = "";
   let mcpLock = "";
   let sarifOut = "";
   let agentFixOut = "";
   let failOnCritical = true;
+  let help = false;
 
-  for (let i = 1; i < argv.length; i += 1) {
-    const a = argv[i];
-    if (a === "--fail-on-critical") failOnCritical = true;
-    else if (a === "--no-fail-on-critical") failOnCritical = false;
-    else if (a === "--dry-run") continue;
-    else if (a.startsWith("--sarif-out=")) {
-      sarifOut = a.slice("--sarif-out=".length);
-    } else if (a === "--sarif-out") {
-      if (!argv[i + 1] || argv[i + 1].startsWith("--")) {
-        throw new Error("Option --sarif-out needs a value.");
+  for (let i = startIndex; i < argv.length; i += 1) {
+    const arg = argv[i];
+    if (!arg.startsWith("-") || arg === "-") {
+      if (command === "lint-sql") {
+        sqlPaths.push(arg);
+      } else if (command === "lint-code") {
+        codePaths.push(arg);
+      } else {
+        throw new UsageError(`Unexpected argument "${arg}" for \`${command || "(none)"}\`.`);
       }
-      sarifOut = argv[i + 1];
-      i += 1;
-    } else if (a.startsWith("--agent-fix-out=")) {
-      agentFixOut = a.slice("--agent-fix-out=".length);
-    } else if (a === "--agent-fix-out") {
-      if (!argv[i + 1] || argv[i + 1].startsWith("--")) {
-        throw new Error("Option --agent-fix-out needs a value.");
+      continue;
+    }
+
+    const eq = arg.indexOf("=");
+    const name = eq > 0 ? arg.slice(0, eq) : arg;
+
+    if (BOOLEAN_FLAGS.has(name)) {
+      if (eq > 0) {
+        throw new UsageError(`Option ${name} does not take a value.`);
       }
-      agentFixOut = argv[i + 1];
-      i += 1;
-    } else if ((a === "--config" || a === "--sql-file" || a === "--file") && argv[i + 1]) {
-      if (a !== "--config") sqlFile = argv[i + 1];
-      i += 1;
-    } else if (a === "--code-dir" && argv[i + 1]) {
-      codeDir = argv[i + 1];
-      i += 1;
-    } else if (a === "--mcp-manifest" && argv[i + 1]) {
-      mcpManifest = argv[i + 1];
-      i += 1;
-    } else if (a === "--mcp-lock" && argv[i + 1]) {
-      mcpLock = argv[i + 1];
-      i += 1;
-    } else if (!a.startsWith("-")) {
-      if (command === "lint-sql" && !sqlFile) sqlFile = a;
-      if (command === "lint-code" && !codeDir) codeDir = a;
+      if (name === "--fail-on-critical") failOnCritical = true;
+      else if (name === "--no-fail-on-critical") failOnCritical = false;
+      else if (name === "--help" || name === "-h") help = true;
+      continue;
+    }
+
+    if (!VALUE_FLAGS.has(name)) {
+      throw new UsageError(`Unknown option ${name}.`);
+    }
+
+    const rawVal = eq > 0 ? arg.slice(eq + 1) : argv[++i];
+    if (rawVal === undefined || rawVal === "" || rawVal.startsWith("--")) {
+      throw new UsageError(`Option ${name} needs a value.`);
+    }
+
+    switch (name) {
+      case "--config":
+        break;
+      case "--sql-file":
+      case "--file":
+        sqlPaths.push(rawVal);
+        break;
+      case "--code-dir":
+        codePaths.push(rawVal);
+        break;
+      case "--mcp-manifest":
+        mcpManifest = rawVal;
+        break;
+      case "--mcp-lock":
+        mcpLock = rawVal;
+        break;
+      case "--sarif-out":
+        sarifOut = rawVal;
+        break;
+      case "--agent-fix-out":
+        agentFixOut = rawVal;
+        break;
     }
   }
-  return { command, sqlFile, codeDir, mcpManifest, mcpLock, sarifOut, agentFixOut, failOnCritical };
+
+  return {
+    command,
+    sqlPaths,
+    codePaths,
+    mcpManifest,
+    mcpLock,
+    sarifOut,
+    agentFixOut,
+    failOnCritical,
+    help,
+  };
 }
 
 function main() {
@@ -600,6 +1056,11 @@ function main() {
   } catch (err) {
     console.error(`[Billing Watchdog] ${err instanceof Error ? err.message : String(err)}`);
     process.exit(2);
+  }
+
+  if (opts.help) {
+    console.log(PUBLIC_USAGE);
+    process.exit(0);
   }
 
   if (!["lint-sql", "lint-code", "verify-ci"].includes(opts.command)) {
@@ -614,26 +1075,41 @@ function main() {
 
   const allFindings = [];
   try {
-    if (opts.command === "lint-sql" || (opts.command === "verify-ci" && opts.sqlFile)) {
-      if (!opts.sqlFile) {
+    if (opts.command === "lint-sql" || (opts.command === "verify-ci" && opts.sqlPaths.length > 0)) {
+      if (opts.sqlPaths.length === 0) {
         console.error("Usage error: --sql-file <path> is required for lint-sql.");
         process.exit(2);
       }
-      const sqlFiles = collectFiles(opts.sqlFile, [".sql"]);
+      const sqlFiles = collectFiles(opts.sqlPaths, [".sql"]);
+      if (sqlFiles.length === 0) {
+        throw new UsageError(`No .sql files found under ${opts.sqlPaths.join(", ")}`);
+      }
       allFindings.push(...lintPublicSqlFiles(sqlFiles));
     }
 
-    if (opts.command === "lint-code" || (opts.command === "verify-ci" && opts.codeDir)) {
-      if (!opts.codeDir) {
+    if (
+      opts.command === "lint-code" ||
+      (opts.command === "verify-ci" && opts.codePaths.length > 0)
+    ) {
+      if (opts.codePaths.length === 0) {
         console.error("Usage error: <code-dir> is required for lint-code.");
         process.exit(2);
       }
-      const codeFiles = collectFiles(opts.codeDir, [".ts", ".tsx", ".js", ".mjs"]);
+      const codeFiles = collectFiles(opts.codePaths, [
+        ".ts",
+        ".tsx",
+        ".js",
+        ".jsx",
+        ".mjs",
+        ".prisma",
+      ]);
       allFindings.push(...lintPublicCodeFiles(codeFiles));
     }
 
     if (opts.command === "verify-ci" && opts.mcpManifest) {
       allFindings.push(...diffMcpManifest(opts.mcpManifest, opts.mcpLock));
+    } else if (opts.command === "verify-ci" && opts.mcpLock) {
+      diffMcpManifest(opts.mcpLock, opts.mcpLock);
     }
   } catch (err) {
     console.error(`[Billing Watchdog] ${err instanceof Error ? err.message : String(err)}`);
@@ -673,4 +1149,16 @@ function main() {
   process.exit(0);
 }
 
-main();
+function isDirectExecution() {
+  const entry = process.argv[1];
+  if (!entry) return false;
+  try {
+    return realpathSync(entry) === realpathSync(fileURLToPath(import.meta.url));
+  } catch {
+    return false;
+  }
+}
+
+if (isDirectExecution()) {
+  main();
+}

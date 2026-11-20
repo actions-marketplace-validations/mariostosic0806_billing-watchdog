@@ -12,8 +12,8 @@ const GITHUB_ACTION_YAML = [
   "# .github/workflows/billing-watchdog.yml",
   "- uses: mariostosic0806/billing-watchdog@v2.3.0",
   "  with:",
-  "    mode: verify-ci",
-  "    sql-file: supabase/migrations/001_billing.sql",
+  "    command: verify-ci",
+  "    sql-path: supabase/migrations/001_billing.sql",
   "    sarif-file: billing-watchdog.sarif",
   "    agent-fix-file: billing-agent-fix.md",
 ].join("\n");
@@ -102,14 +102,14 @@ export function LicensingCiView({ onOpenAuditor }: LicensingCiViewProps) {
           </Button>
         </div>
 
-        {/* Column 2: Self-Hosted Pro Watchdog v2 */}
-        <div className="flex flex-col justify-between p-5 bg-[#F4F2EC]/45 border-t-2 border-t-[#141413]">
+        {/* Column 2: Monthly Rolling Rules & 33-Day Key */}
+        <div className="flex flex-col justify-between p-5 bg-[#FCFBF8]">
           <div>
             <div className="flex items-center justify-between gap-2">
-              <span className="font-mono text-[11px] font-semibold text-[#141413]">
-                SELF-HOSTED PRO WATCHDOG v2
+              <span className="font-mono text-[11px] font-medium text-[#5C5850]">
+                PRO MONTHLY WATCHDOG v2
               </span>
-              <Badge variant="ok">Production Ready</Badge>
+              <Badge variant="neutral">Rolling Key</Badge>
             </div>
             <div className="mt-2 flex items-baseline gap-1.5">
               <span className="font-mono text-[28px] font-semibold tracking-tight text-[#141413] tabular-nums">
@@ -118,14 +118,13 @@ export function LicensingCiView({ onOpenAuditor }: LicensingCiViewProps) {
               <span className="text-[13px] text-[#68645B]">/ month</span>
             </div>
             <p className="mt-1 text-[13px] text-[#47453F]">
-              Full source distribution + executable non-blocking SQL export
+              Monthly Rolling Rules &amp; 33-Day Key (<code className="font-mono text-[11.5px]">BWV2E-PRO_MONTHLY</code>)
             </p>
 
-            <ul className="mt-4 space-y-2 border-t border-[#DDD8CE] pt-4 text-[13px] text-[#141413]">
+            <ul className="mt-4 space-y-2 border-t border-[#DDD8CE] pt-4 text-[13px] text-[#47453F]">
               <li>Unlocks full SQL &amp; Next.js remediation downloads</li>
               <li>
-                Full source: <code className="font-mono text-[12px]">state-machine.ts</code>,{" "}
-                <code className="font-mono text-[12px]">webhook-firewall.ts</code>
+                Rolling CI rule updates &amp; 33-day signed <code className="font-mono text-[12px]">BWV2E</code> key
               </li>
               <li>
                 Atomic PL/pgSQL <code className="font-mono text-[12px]">SELECT ... FOR UPDATE</code> engine
@@ -140,17 +139,23 @@ export function LicensingCiView({ onOpenAuditor }: LicensingCiViewProps) {
           </div>
 
           <Button
-            className="mt-6 w-full"
-            onClick={() => kernel.startPolarCheckout("Pro Monthly Watchdog v2 ($49/mo)", 4900)}
+            variant="outline"
+            className="mt-6 w-full border-[#141413] text-[#141413]"
+            onClick={() => kernel.startPolarCheckout('Pro Monthly Watchdog v2 ($49/mo)', 4900)}
           >
             Buy via Polar.sh ($49/mo)
           </Button>
         </div>
 
-        {/* Column 3: Lifetime Team License */}
-        <div className="flex flex-col justify-between p-5 bg-[#FCFBF8]">
+        {/* Column 3: Lifetime Team License (Featured Hero SKU) */}
+        <div className="flex flex-col justify-between p-5 border-t-2 border-t-[#141413] bg-[#F4F2EC]/45">
           <div>
-            <div className="font-mono text-[11px] font-medium text-[#5C5850]">LIFETIME TEAM LICENSE</div>
+            <div className="flex items-center justify-between gap-2">
+              <span className="font-mono text-[11px] font-semibold text-[#141413]">
+                LIFETIME TEAM LICENSE
+              </span>
+              <Badge variant="ok">Recommended · Zero Churn</Badge>
+            </div>
             <div className="mt-2 flex items-baseline gap-1.5">
               <span className="font-mono text-[28px] font-semibold tracking-tight text-[#141413] tabular-nums">
                 $149
@@ -158,26 +163,30 @@ export function LicensingCiView({ onOpenAuditor }: LicensingCiViewProps) {
               <span className="text-[13px] text-[#68645B]">one-time</span>
             </div>
             <p className="mt-1 text-[13px] text-[#47453F]">
-              Perpetual source access for your engineering organization
+              Perpetual self-hosted source + CI pack for your engineering team
             </p>
 
-            <ul className="mt-4 space-y-2 border-t border-[#DDD8CE] pt-4 text-[13px] text-[#47453F]">
+            <ul className="mt-4 space-y-2 border-t border-[#DDD8CE] pt-4 text-[13px] text-[#141413]">
               <li>
-                Signed Ed25519 key (<code className="font-mono text-[12px]">BWV2E-LIFETIME_TEAM-...</code>)
+                Perpetual signed Ed25519 key (<code className="font-mono text-[12px]">BWV2E-LIFETIME_TEAM-...</code>)
               </li>
-              <li>Full deterministic Stripe ⇄ Postgres state machine</li>
-              <li>Multi-instance serverless SQL coordinator &amp; migrations</li>
               <li>
-                OASIS SARIF 2.1.0 &amp; Agent Fix Packet (<code className="font-mono text-[12px]">--agent-fix-out</code>)
+                Full source: <code className="font-mono text-[12px]">state-machine.ts</code>,{" "}
+                <code className="font-mono text-[12px]">webhook-firewall.ts</code>
               </li>
-              <li>CI/CD workflow templates &amp; MIT Agent Skill</li>
+              <li>
+                Zero-custody <code className="font-mono text-[12px]">REPEATABLE READ</code> Stripe ↔ Postgres reconciler
+              </li>
+              <li>
+                Pre-flight <code className="font-mono text-[12px]">executeGuardedAiStream</code> hold &amp; SARIF/Fix MD
+              </li>
+              <li>CI/CD workflow templates, migrations &amp; MIT Agent Skill</li>
             </ul>
           </div>
 
           <Button
-            variant="outline"
-            className="mt-6 w-full border-[#141413] text-[#141413]"
-            onClick={() => kernel.startPolarCheckout("Lifetime Team License v2 ($149 One-Time)", 14900)}
+            className="mt-6 w-full"
+            onClick={() => kernel.startPolarCheckout('Lifetime Team License v2 ($149 One-Time)', 14900)}
           >
             Buy Lifetime via Polar.sh ($149)
           </Button>

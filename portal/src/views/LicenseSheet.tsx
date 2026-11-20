@@ -54,7 +54,7 @@ export function LicenseSheet({ state }: LicenseSheetProps) {
             }
           >
             <div className="flex items-start gap-2.5">
-              {isProLicenseUnlocked ? (
+              {isProLicenseUnlocked || licenseStatusKind === "ok" ? (
                 <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-[#0D7A5F]" strokeWidth={1.75} />
               ) : (
                 <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0 text-[#B86B00]" strokeWidth={1.75} />
@@ -82,7 +82,11 @@ export function LicenseSheet({ state }: LicenseSheetProps) {
                 ) : (
                   <>
                     <div className="font-semibold">
-                      {isProLicenseUnlocked ? "Pro / Lifetime License Verified" : "Free Diagnostic Mode Active"}
+                      {isProLicenseUnlocked
+                        ? "Pro / Lifetime License Verified"
+                        : licenseStatusKind === "ok"
+                          ? "Polar.sh Checkout Completed"
+                          : "Free Diagnostic Mode Active"}
                     </div>
                     <div className="break-words font-mono text-[11px]">{licenseStatusText}</div>
                   </>

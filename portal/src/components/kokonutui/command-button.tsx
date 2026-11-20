@@ -71,6 +71,16 @@ function isTypingTarget(target: EventTarget | null): boolean {
   );
 }
 
+function isModalDialogOpen(): boolean {
+  if (typeof window !== "undefined" && window.__WATCHDOG_KERNEL__?.getState().licenseDrawerOpen) {
+    return true;
+  }
+  if (typeof document !== "undefined" && document.querySelector('[role="dialog"]')) {
+    return true;
+  }
+  return false;
+}
+
 export function CommandButton({
   className,
   children,
@@ -99,7 +109,7 @@ export function CommandButton({
     const handleKeyDown = (event: KeyboardEvent) => {
       const current = parsedRef.current;
       const needsMod = current.modifiers.some((m) => m !== "shift");
-      if (!needsMod && isTypingTarget(event.target)) return;
+      if (!needsMod && (isTypingTarget(event.target) || isModalDialogOpen())) return;
       if (!event.repeat && matchesShortcut(event, current, isMac) && !buttonRef.current?.disabled) {
         setKeyDown(true);
         event.preventDefault();

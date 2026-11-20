@@ -113,10 +113,16 @@ for (const sibling of [
   "docs/terms.html",
   "docs/privacy.html",
   "docs/refund-policy.html",
-  "docs/calculator/index.html",
-  "docs/saferevert/index.html",
 ]) {
   assert.ok(fs.existsSync(path.join(repoRoot, sibling)), `Required sibling preserved check failed: ${sibling}`);
+}
+
+for (const removedDir of ["docs/calculator", ["docs/safe", "revert"].join("")]) {
+  assert.equal(
+    fs.existsSync(path.join(repoRoot, removedDir)),
+    false,
+    `Removed sibling directory must not exist: ${removedDir}`
+  );
 }
 
 console.log(
