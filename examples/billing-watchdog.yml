@@ -59,12 +59,13 @@ jobs:
         uses: actions/checkout@v5
 
       - name: Run ProofTwin SQL, RLS & AI Route Gate
-        uses: mariostosic0806/billing-watchdog@v2.2.0
+        uses: mariostosic0806/billing-watchdog@v2.3.0
         with:
           command: verify-ci
           config-path: reconcile.config.json
           sql-path: supabase/migrations
           sarif-file: prooftwin.sarif
+          agent-fix-file: prooftwin-agent-fix.md
 
       - name: Upload SARIF 2.1.0 annotations to GitHub Security
         if: always() && hashFiles('prooftwin.sarif') != ''
@@ -108,7 +109,7 @@ jobs:
           echo "command=$cmd" >> "$GITHUB_OUTPUT"
 
       - name: Run read-only billing integrity watchdog
-        uses: mariostosic0806/billing-watchdog@v2.2.0
+        uses: mariostosic0806/billing-watchdog@v2.3.0
         with:
           command: ${{ steps.cmd.outputs.command }}
           config-path: reconcile.config.json
