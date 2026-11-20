@@ -5,7 +5,7 @@
 Deterministic Stripe ↔ PostgreSQL/Supabase billing integrity reconciler, zero-credential `ProofTwin` pull-request security gate, and self-hosted AI credit circuit-breaker.
 
 - **Interactive Browser Simulator & Offline `.sql` / RLS Linter:** [https://mariostosic0806.github.io/billing-watchdog/](https://mariostosic0806.github.io/billing-watchdog/)
-- **SafeRevert (Shopify Bulk Price & COGS Margin Calculator):** [https://mariostosic0806.github.io/billing-watchdog/calculator/](https://mariostosic0806.github.io/billing-watchdog/calculator/)
+- **Standalone MIT Agent Skill (`Claude Code`, `ECC`, `Cursor`, `Codex`, `Antigravity`):** [`skills/stripe-supabase-billing-guard/SKILL.md`](skills/stripe-supabase-billing-guard/SKILL.md)
 
 ---
 
@@ -73,4 +73,4 @@ Every live Pro run opens a single `BEGIN ISOLATION LEVEL REPEATABLE READ, READ O
 
 ## Contact & Licensing
 
-Unlock executable SQL remediation patches and the complete Self-Hosted Pro v2 TypeScript engine (`106` automated state-machine, pentest, SARIF, and chaos tests) at [mariostosic0806.github.io/billing-watchdog](https://mariostosic0806.github.io/billing-watchdog/) or contact [mariostosic@prime-tech.rs](mailto:mariostosic@prime-tech.rs).
+Unlock executable SQL remediation patches and the complete Self-Hosted Pro v2 TypeScript engine (`113` automated state-machine, idempotency, SARIF, and fault-injection tests) at [mariostosic0806.github.io/billing-watchdog](https://mariostosic0806.github.io/billing-watchdog/) or contact [mariostosic@prime-tech.rs](mailto:mariostosic@prime-tech.rs).

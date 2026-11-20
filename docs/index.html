@@ -142,9 +142,9 @@
         </p>
       </div>
       <div style="display:flex;gap:10px;flex-wrap:wrap;">
-        <a href="#chaos-simulator" class="btn btn-danger">⚡ Run 50-Event Chaos Test</a>
+        <a href="#chaos-simulator" class="btn btn-danger">⚡ Run 50-Event Fault Test</a>
         <a href="#self-hosted-license" class="btn">Get Pro Watchdog v2 ($49/mo)</a>
-        <a href="https://mariostosic0806.github.io/billing-watchdog/calculator/" class="btn btn-secondary">SafeRevert (Shopify Tool) →</a>
+        <a href="https://github.com/mariostosic0806/billing-watchdog" class="btn btn-secondary">GitHub Action &amp; Docs →</a>
       </div>
     </header>
 
@@ -277,7 +277,7 @@
         <table class="chaos-table">
           <thead>
             <tr>
-              <th style="width:22%;">Chaos Attack Vector (Events)</th>
+              <th style="width:22%;">Webhook Fault-Injection Test Scenario (Events)</th>
               <th style="width:39%;">Naive AI Webhook Handler Outcome</th>
               <th style="width:39%;">Billing Watchdog v2 Deterministic State Machine</th>
             </tr>
@@ -403,7 +403,7 @@
               <li>Atomic PL/pgSQL <code>SELECT ... FOR UPDATE</code> Engine</li>
               <li>Active Runaway Credit Circuit-Breaker (<code>is_billing_quarantined</code>)</li>
               <li>Drop-In Next.js Webhook Firewall &amp; <code>executeGuardedAiStream</code> Middleware</li>
-              <li>Stripe Chargeback Dispute Evidence Log &amp; Guest Checkout Reconciler</li>
+              <li>Billing Audit Trail &amp; Reconciliation Report Export (Guest Checkout Backfill)</li>
             </ul>
           </div>
           <button type="button" class="btn" onclick="startPolarCheckout('Pro Monthly Watchdog v2 ($49/mo)', 4900)">Buy via Polar.sh ($49/mo)</button>
@@ -411,15 +411,15 @@
 
         <div class="plan-card">
           <div>
-            <span class="badge">LIFETIME TEAM LICENSE + CONCIERGE</span>
+            <span class="badge">LIFETIME TEAM LICENSE</span>
             <div class="plan-price">$149 <span style="font-size:14px;color:var(--muted);font-weight:400;">one-time</span></div>
-            <div style="font-size:13px;color:var(--text);font-weight:600;">Unlimited Environments + Custom Schema Integration</div>
+            <div style="font-size:13px;color:var(--text);font-weight:600;">Self-Hosted Team Source Bundle + CI Workflow Templates</div>
             <ul class="feat">
-              <li>Lifetime Commercial License (`BWV2-LIFETIME_TEAM-...`)</li>
+              <li>Lifetime Commercial License (<code>BWV2E-LIFETIME_TEAM-...</code>)</li>
               <li>Full Deterministic Stripe ↔ Postgres State Machine Engine</li>
-              <li>Multi-Instance Vercel Serverless SQL Coordinator</li>
-              <li>1-on-1 Engineer Concierge Mapping of Your Schema</li>
-              <li>Ready-to-Merge GitHub Actions CI/CD Workflow</li>
+              <li>Multi-Instance Serverless SQL Coordinator &amp; Schema Migration Templates</li>
+              <li>OASIS SARIF 2.1.0 &amp; Agent Remediation Packet (<code>--agent-fix-out</code>)</li>
+              <li>Ready-to-Merge GitHub Actions CI/CD Workflow &amp; MIT Agent Skill</li>
             </ul>
           </div>
           <button type="button" class="btn btn-secondary" onclick="startPolarCheckout('Lifetime Team License v2 ($149 One-Time)', 14900)">Buy Lifetime via Polar.sh ($149)</button>
@@ -428,18 +428,18 @@
 
       <div style="margin-top:18px;padding:16px 18px;border-radius:10px;background:rgba(15,23,42,0.85);border:1px solid var(--border);">
         <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:10px;">
-          <strong style="font-size:13.5px;color:#f8fafc;">📦 Inspect What You Receive Inside <code>billing-watchdog-pro-v2.zip</code> (6,500+ Lines • 86 Automated Tests • Zero Cloud Lock-In)</strong>
-          <span class="sev sev-ok">30-DAY MONEY-BACK GUARANTEE • INSTANT DELIVERY</span>
+          <strong style="font-size:13.5px;color:#f8fafc;">📦 Inspect What You Receive Inside <code>billing-watchdog-pro-v2.zip</code> (6,500+ Lines • 113 Automated Tests • Zero Cloud Lock-In)</strong>
+          <span class="sev sev-ok">30-DAY MONEY-BACK GUARANTEE • INSTANT DIGITAL DELIVERY</span>
         </div>
         <div class="grid" style="margin-bottom:0;font-size:12.5px;color:var(--muted);">
           <div>
-            <code>src/state-machine.ts</code> (2,238 lines) — Two-Phase AI Stream Hold (<code>executeGuardedAiStream</code>), 7 Edge-Case Guards &amp; Stripe Chargeback Dispute Evidence Generator<br/>
+            <code>src/state-machine.ts</code> (2,238 lines) — Two-Phase AI Stream Hold (<code>executeGuardedAiStream</code>), 7 Edge-Case Guards &amp; Billing Audit Trail Report Export<br/>
             <code>src/watchdog.ts</code> (1,913 lines) — Read-Only PostgreSQL Snapshot Adapter, Bi-Directional Stripe Drift Reconciler &amp; Guest Checkout Backfill<br/>
             <code>src/webhook-firewall.ts</code> &amp; <code>src/circuit-breaker.ts</code> — Atomic <code>SELECT ... FOR UPDATE</code> Coordinator &amp; Auto-Quarantine Engine
           </div>
           <div>
-            <code>src/code-scanner.ts</code> &amp; <code>src/cli.ts</code> — Static AST/Pattern Scanner for Next.js <code>route.ts</code>, Prisma &amp; <code>schema.sql</code><br/>
-            <code>test/*.test.ts</code> (86 / 86 passing tests) — Full TCP/HTTP Pentest Suite, 20x Parallel Webhook Burst &amp; 50x AI Stream Race Benchmark<br/>
+            <code>src/code-scanner.ts</code>, <code>src/sarif.ts</code> &amp; <code>src/agent-fix.ts</code> — Static Scanner, OASIS SARIF 2.1.0 &amp; Prompt-Injection-Safe Agent Fix Packet<br/>
+            <code>test/*.test.ts</code> (113 / 113 passing tests) — Local CI/CD Webhook Idempotency &amp; Concurrency Test Suite, 20x Parallel Webhook Burst &amp; 50x AI Stream Race Benchmark<br/>
             <code>action.yml</code> &amp; <code>examples/</code> — Ready-to-merge GitHub Actions CI/CD workflow &amp; hardened PostgreSQL migration templates
           </div>
         </div>
@@ -447,10 +447,12 @@
     </div>
 
     <footer>
-      <div>© 2026 Prime Tech • Engineered by Mario Stosic (<a href="mailto:mariostosic@prime-tech.rs">mariostosic@prime-tech.rs</a>)</div>
+      <div>© 2026 Mario Stosic — Individual Software Developer (Serbia) · Support: <a href="mailto:mariostosic@prime-tech.rs">mariostosic@prime-tech.rs</a></div>
       <div>
-        <a href="mailto:mariostosic@prime-tech.rs">Contact Engineering</a> ·
-        <a href="https://mariostosic0806.github.io/billing-watchdog/calculator/">SafeRevert (Shopify Bulk Price Scheduler)</a>
+        <a href="terms.html">Terms of Service</a> ·
+        <a href="privacy.html">Privacy Policy</a> ·
+        <a href="refund-policy.html">Refund Policy (30 Days)</a> ·
+        <a href="https://github.com/mariostosic0806/billing-watchdog">GitHub Repository</a>
       </div>
     </footer>
   </div>
