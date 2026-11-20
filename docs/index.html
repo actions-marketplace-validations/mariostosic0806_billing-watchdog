@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Billing Watchdog v2 — Deterministic Firewall for Stripe &amp; Postgres Credit Ledgers</title>
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23141413' stroke-width='2' stroke-linecap='square' stroke-linejoin='miter'%3E%3Crect x='2.5' y='2.5' width='19' height='19' rx='2'/%3E%3Cpath d='M6 12h4l2-5 3 10 2-5h1'/%3E%3C/svg%3E" />
-  <script type="module" crossorigin src="./assets/index-BYr7u211.js"></script>
+  <script type="module" crossorigin src="./assets/index-CqRbPU8N.js"></script>
   <link rel="modulepreload" crossorigin href="./assets/vendor-BLzmceRs.js">
   <link rel="stylesheet" crossorigin href="./assets/index-Nt9cdkWS.css">
 </head>
@@ -154,7 +154,7 @@ function sha256HexSync(ascii) {
 }
 
 // Public-only RFC 8410 Ed25519 SPKI key (44 bytes DER in Base64 — zero private signing material in HTML)
-const PRIME_TECH_ED25519_PUBLIC_KEY_SPKI_B64 = "MCowBQYDK2VwAyEAxkJtuXeg/fNeir0z70Cg4grr8ZpFXjVQd+Oe1G42IQU=";
+const PRIME_TECH_ED25519_PUBLIC_KEY_SPKI_B64 = "MCowBQYDK2VwAyEAcjNZCYpXIWO9C3c5MPsVDi+HemcwX6cFqpCR8AooA48=";
 
 function decodeBase64Bytes(b64, isUrlSafe) {
   let norm = isUrlSafe ? b64.replace(/-/g, "+").replace(/_/g, "/") : b64;

@@ -26,7 +26,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      - uses: mariostosic0806/billing-watchdog@v2.4.0
+      - uses: mariostosic0806/billing-watchdog@v2.4.1
         with:
           command: verify-ci
           sql-path: supabase/migrations
@@ -43,7 +43,7 @@ jobs:
 
 ## What It Catches
 
-| Check / Guard | Free Diagnostic Action (`@v2.4.0`) | Self-Hosted Pro v2 (`$49/mo`, `$149` Lifetime, or `$299` Agency) |
+| Check / Guard | Free Diagnostic Action (`@v2.4.1`) | Self-Hosted Pro v2 (`$49/mo`, `$149` Lifetime, or `$299` Agency) |
 | :--- | :---: | :---: |
 | Missing `CHECK (credits_balance >= 0)` & `UNIQUE (stripe_event_id)` across SQL, Drizzle `pgTable`, & Prisma (`examples/bad-migration.sql`) | ✅ Detects & blocks PR | ✅ Generates non-blocking `NOT VALID` + `VALIDATE CONSTRAINT` & `CONCURRENTLY` SQL patches |
 | Multi-Tenant `org_id` / `user_id` RLS & `SECURITY DEFINER` RPC escalation (`target_org_id`, uncorrelated `org_members`) | ✅ Detects & blocks PR | ✅ Live `READ ONLY` Cross-JWT Shadow DB RLS Isolation Prober (`--probe-rls-url` in `src/prooftwin-ci-gate.ts`) |

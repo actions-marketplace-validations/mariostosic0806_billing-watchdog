@@ -120,7 +120,7 @@ function sha256HexSync(ascii) {
 }
 
 // Public-only RFC 8410 Ed25519 SPKI key (44 bytes DER in Base64 — zero private signing material in HTML)
-const PRIME_TECH_ED25519_PUBLIC_KEY_SPKI_B64 = "MCowBQYDK2VwAyEAxkJtuXeg/fNeir0z70Cg4grr8ZpFXjVQd+Oe1G42IQU=";
+const PRIME_TECH_ED25519_PUBLIC_KEY_SPKI_B64 = "MCowBQYDK2VwAyEAcjNZCYpXIWO9C3c5MPsVDi+HemcwX6cFqpCR8AooA48=";
 
 function decodeBase64Bytes(b64, isUrlSafe) {
   let norm = isUrlSafe ? b64.replace(/-/g, "+").replace(/_/g, "/") : b64;

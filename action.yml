@@ -1,5 +1,5 @@
 name: "Stripe <-> Supabase Billing Integrity Watchdog"
-description: "Read-only diagnostic & reconciliation watchdog for Stripe subscriptions, webhooks, Drizzle/Prisma/Python/TS routes, MCP lockfiles, and Postgres/Supabase RLS."
+description: "Stripe & Postgres/Supabase billing CI gate: Drizzle/Prisma/Python/TS webhooks, AI stream holds, RLS, SARIF & .mcp.json."
 author: "Billing Integrity Watchdog"
 branding:
   icon: "shield"
