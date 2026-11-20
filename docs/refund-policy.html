@@ -4,24 +4,49 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Refund Policy — Billing Watchdog v2</title>
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%230F172A' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z'/%3E%3Cpath d='m9 12 2 2 4-4'/%3E%3C/svg%3E" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
   <style>
-    :root { --bg:#090d16; --card:#111827; --border:#334155; --text:#f8fafc; --muted:#94a3b8; --accent:#38bdf8; }
-    * { box-sizing:border-box; }
-    body { margin:0; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Inter,sans-serif; background:var(--bg); color:var(--text); line-height:1.6; }
-    .wrap { max-width:860px; margin:0 auto; padding:36px 20px 64px; }
-    .card { background:var(--card); border:1px solid var(--border); border-radius:12px; padding:28px; }
-    h1 { margin:0 0 6px; font-size:26px; }
-    h2 { margin:24px 0 8px; font-size:17px; color:#e2e8f0; }
-    p, li { color:#cbd5e1; font-size:14.5px; }
-    .meta { color:var(--muted); font-size:13px; margin-bottom:20px; }
-    a { color:var(--accent); }
-    nav { margin-bottom:20px; font-size:13.5px; }
+    :root {
+      --bg-page: #F8FAFC;
+      --bg-surface: #FFFFFF;
+      --bg-subtle: #F1F5F9;
+      --ink-primary: #0F172A;
+      --ink-secondary: #475569;
+      --ink-muted: #64748B;
+      --border-subtle: #E2E8F0;
+      --brand-accent: #2563EB;
+      --font-sans: "Plus Jakarta Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    }
+    *, *::before, *::after { box-sizing: border-box; }
+    body { margin: 0; font-family: var(--font-sans); background: var(--bg-page); color: var(--ink-primary); line-height: 1.65; font-size: 15px; -webkit-font-smoothing: antialiased; }
+    .topbar { height: 56px; background: rgba(248, 250, 252, 0.92); border-bottom: 1px solid var(--border-subtle); }
+    .topbar-inner { max-width: 860px; height: 100%; margin: 0 auto; padding: 0 20px; display: flex; align-items: center; justify-content: space-between; font-size: 13.5px; font-weight: 600; }
+    .wrap { max-width: 860px; margin: 0 auto; padding: 32px 20px 64px; }
+    .card { background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: 14px; padding: 32px; box-shadow: 0 1px 3px rgba(15, 23, 42, 0.05); }
+    h1 { margin: 0 0 6px; font-size: 28px; font-weight: 800; letter-spacing: -0.025em; }
+    h2 { margin: 26px 0 8px; font-size: 16.5px; font-weight: 700; color: var(--ink-primary); }
+    p, li { color: var(--ink-secondary); font-size: 14.5px; margin: 0 0 10px; }
+    .meta { color: var(--ink-muted); font-size: 13px; padding-bottom: 18px; margin-bottom: 22px; border-bottom: 1px solid var(--border-subtle); }
+    code { font-family: var(--font-mono); font-size: 0.88em; background: var(--bg-subtle); padding: 2px 5px; border-radius: 4px; border: 1px solid var(--border-subtle); color: var(--ink-primary); }
+    a { color: var(--brand-accent); text-decoration: none; font-weight: 600; }
+    a:hover { text-decoration: underline; }
+    :focus-visible { outline: 2px solid var(--brand-accent); outline-offset: 2px; }
+    @media (max-width: 640px) { .card { padding: 22px 18px; } }
   </style>
 </head>
 <body>
-  <div class="wrap">
-    <nav><a href="index.html">← Back to Billing Watchdog v2</a></nav>
-    <div class="card">
+  <header class="topbar">
+    <div class="topbar-inner">
+      <a href="index.html">← Back to Billing Watchdog v2</a>
+      <span style="color:var(--ink-muted);">Legal · Refund Policy</span>
+    </div>
+  </header>
+  <main class="wrap">
+    <article class="card">
       <h1>Refund Policy (30-Day Money-Back Guarantee)</h1>
       <div class="meta">Effective Date: 2026-11-20 · Operator: Mario Stosic (Individual Software Developer, Serbia)</div>
 
@@ -36,7 +61,7 @@
 
       <h2>4. Contact</h2>
       <p>Operated by <strong>Mario Stosic</strong> (Individual Software Developer, Serbia) · <a href="mailto:mariostosic@prime-tech.rs">mariostosic@prime-tech.rs</a>.</p>
-    </div>
-  </div>
+    </article>
+  </main>
 </body>
 </html>

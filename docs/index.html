@@ -3,459 +3,1468 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Billing Watchdog v2 — Deterministic Stripe ↔ Postgres State Machine, Chaos Webhook Simulator & Active Credit Circuit-Breaker</title>
+  <title>Billing Watchdog v2 — Deterministic Stripe ↔ Postgres State Machine, Webhook Fault Simulator &amp; Credit Circuit-Breaker</title>
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%230F172A' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z'/%3E%3Cpath d='m9 12 2 2 4-4'/%3E%3C/svg%3E" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
   <style>
     :root {
-      --bg: #090d16;
-      --card: #111827;
-      --card-alt: #1e293b;
-      --border: #334155;
-      --text: #f8fafc;
-      --muted: #94a3b8;
-      --accent: #38bdf8;
-      --accent-hover: #0284c7;
-      --ok: #10b981;
-      --warn: #f59e0b;
-      --danger: #ef4444;
+      --bg-page: #F8FAFC;
+      --bg-surface: #FFFFFF;
+      --bg-subtle: #F1F5F9;
+      --bg-code: #0F172A;
+      --bg-code-header: #1E293B;
+      --ink-primary: #0F172A;
+      --ink-secondary: #475569;
+      --ink-muted: #64748B;
+      --border-subtle: #E2E8F0;
+      --border-strong: #CBD5E1;
+      --brand-primary: #0F172A;
+      --brand-primary-hover: #1E293B;
+      --brand-accent: #2563EB;
+      --brand-accent-soft: #EFF6FF;
+      --danger-ink: #B91C1C;
+      --danger-bg: #FEF2F2;
+      --danger-border: #FECACA;
+      --danger-accent: #DC2626;
+      --ok-ink: #047857;
+      --ok-bg: #ECFDF5;
+      --ok-border: #A7F3D0;
+      --ok-accent: #059669;
+      --warn-ink: #B45309;
+      --warn-bg: #FFFBEB;
+      --warn-border: #FDE68A;
+      --radius-sm: 6px;
+      --radius-md: 10px;
+      --radius-lg: 14px;
+      --shadow-xs: 0 1px 2px rgba(15, 23, 42, 0.04);
+      --shadow-sm: 0 1px 3px rgba(15, 23, 42, 0.06), 0 1px 2px rgba(15, 23, 42, 0.04);
+      --font-sans: "Plus Jakarta Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      --ease: 150ms cubic-bezier(0.2, 0, 0, 1);
     }
-    * { box-sizing: border-box; }
+
+    *, *::before, *::after {
+      box-sizing: border-box;
+    }
+
+    html {
+      scroll-behavior: smooth;
+    }
+
     body {
       margin: 0;
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Inter, sans-serif;
-      background: var(--bg);
-      color: var(--text);
-      line-height: 1.5;
+      font-family: var(--font-sans);
+      background: var(--bg-page);
+      color: var(--ink-primary);
+      line-height: 1.55;
+      font-size: 15px;
+      -webkit-font-smoothing: antialiased;
+      overflow-x: clip;
     }
-    .container { max-width: 1220px; margin: 0 auto; padding: 28px 20px 64px; }
-    header {
-      display: flex; flex-wrap: wrap; justify-content: space-between; align-items: flex-start;
-      gap: 16px; padding-bottom: 22px; border-bottom: 1px solid var(--border); margin-bottom: 28px;
+
+    a {
+      color: var(--brand-accent);
+      text-decoration: none;
+      transition: color var(--ease);
     }
-    .badge {
-      display: inline-block; padding: 4px 10px; border-radius: 999px; font-size: 12px;
-      font-weight: 600; background: rgba(56, 189, 248, 0.15); color: #7dd3fc; border: 1px solid rgba(56, 189, 248, 0.35);
+
+    a:hover {
+      text-decoration: underline;
     }
-    h1 { font-size: 28px; margin: 8px 0; letter-spacing: -0.02em; }
-    h2 { font-size: 19px; margin: 0 0 12px; }
-    h3 { font-size: 15px; margin: 0 0 8px; }
-    p.sub { color: var(--muted); margin: 0; font-size: 15px; max-width: 820px; }
-    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 24px; }
-    .grid-4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 16px; }
-    @media (max-width: 920px) {
-      .grid { grid-template-columns: 1fr; }
-      .grid-4 { grid-template-columns: 1fr 1fr; }
+
+    code {
+      font-family: var(--font-mono);
+      font-size: 0.88em;
+      background: var(--bg-subtle);
+      color: var(--ink-primary);
+      padding: 2px 5px;
+      border-radius: 4px;
+      border: 1px solid var(--border-subtle);
     }
-    @media (max-width: 560px) {
-      .grid-4 { grid-template-columns: 1fr; }
+
+    .bg-code-inline,
+    .code-pane code,
+    .code-pane-bar code,
+    .polar-notice code,
+    .status-line code {
+      background: rgba(148, 163, 184, 0.16);
+      border-color: rgba(148, 163, 184, 0.25);
     }
-    .card {
-      background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 20px;
+
+    .code-pane code,
+    .code-pane-bar code {
+      color: #E2E8F0;
     }
-    label { display: block; font-size: 12.5px; font-weight: 600; color: var(--muted); margin-bottom: 6px; }
-    select, input[type="number"] {
-      width: 100%; background: #05080f; color: var(--text); border: 1px solid var(--border);
-      border-radius: 8px; padding: 9px 12px; font-size: 13.5px; font-weight: 600;
+
+    section[id],
+    #sql-linter-section {
+      scroll-margin-top: 72px;
     }
-    textarea, pre {
-      width: 100%; background: #05080f; color: #e2e8f0; border: 1px solid var(--border);
-      border-radius: 8px; padding: 12px; font-size: 12.5px;
-      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-      overflow-x: auto; margin: 0;
+
+    :focus-visible {
+      outline: 2px solid var(--brand-accent);
+      outline-offset: 2px;
     }
+
+    .skip-link {
+      position: absolute;
+      left: -9999px;
+      top: 8px;
+      background: var(--brand-primary);
+      color: #FFFFFF;
+      padding: 8px 14px;
+      border-radius: var(--radius-sm);
+      font-weight: 600;
+      font-size: 13px;
+      z-index: 100;
+    }
+
+    .skip-link:focus-visible {
+      left: 16px;
+    }
+
+    .tabular {
+      font-variant-numeric: tabular-nums;
+    }
+
+    /* Sticky Daylight Topbar */
+    .topbar {
+      position: sticky;
+      top: 0;
+      z-index: 40;
+      height: 56px;
+      background: rgba(248, 250, 252, 0.9);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--border-subtle);
+    }
+
+    .topbar-inner {
+      max-width: 1240px;
+      height: 100%;
+      margin: 0 auto;
+      padding: 0 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 20px;
+    }
+
+    .brand-lockup {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      color: var(--ink-primary);
+      font-weight: 700;
+      font-size: 14.5px;
+      letter-spacing: -0.015em;
+      white-space: nowrap;
+      text-decoration: none;
+    }
+
+    .brand-lockup:hover {
+      text-decoration: none;
+      color: var(--brand-accent);
+    }
+
+    .brand-mark {
+      width: 28px;
+      height: 28px;
+      border-radius: 7px;
+      background: var(--brand-primary);
+      color: #FFFFFF;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+
+    .nav-links {
+      display: flex;
+      align-items: center;
+      gap: 20px;
+    }
+
+    .nav-links a {
+      color: var(--ink-secondary);
+      font-size: 13.5px;
+      font-weight: 600;
+      white-space: nowrap;
+      transition: color var(--ease);
+    }
+
+    .nav-links a:hover {
+      color: var(--ink-primary);
+      text-decoration: none;
+    }
+
+    .nav-github {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 11px;
+      border-radius: var(--radius-sm);
+      border: 1px solid var(--border-strong);
+      background: var(--bg-surface);
+      color: var(--ink-primary);
+      font-size: 12.5px;
+      font-weight: 600;
+      white-space: nowrap;
+      transition: background-color var(--ease), border-color var(--ease);
+    }
+
+    .nav-github:hover {
+      background: var(--bg-subtle);
+      border-color: var(--ink-muted);
+      text-decoration: none;
+    }
+
+    /* Main Container & Sections */
+    .container {
+      max-width: 1240px;
+      margin: 0 auto;
+      padding: 36px 24px 72px;
+    }
+
+    /* Editorial Hero */
+    .hero {
+      display: grid;
+      grid-template-columns: minmax(0, 7fr) minmax(0, 5fr);
+      gap: 32px;
+      align-items: start;
+      padding-bottom: 36px;
+      border-bottom: 1px solid var(--border-subtle);
+      margin-bottom: 36px;
+    }
+
+    .eyebrow-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 4px 11px;
+      border-radius: 999px;
+      font-size: 12.5px;
+      font-weight: 600;
+      background: var(--brand-accent-soft);
+      color: #1D4ED8;
+      border: 1px solid #BFDBFE;
+    }
+
+    .eyebrow-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--brand-accent);
+    }
+
+    h1 {
+      font-size: clamp(28px, 3.3vw, 39px);
+      font-weight: 800;
+      line-height: 1.13;
+      letter-spacing: -0.03em;
+      margin: 14px 0 12px;
+      color: var(--ink-primary);
+    }
+
+    h2 {
+      font-size: 20px;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      line-height: 1.25;
+      margin: 0 0 6px;
+      color: var(--ink-primary);
+    }
+
+    h3 {
+      font-size: 15px;
+      font-weight: 700;
+      letter-spacing: -0.01em;
+      margin: 0;
+      color: var(--ink-primary);
+    }
+
+    p.sub {
+      color: var(--ink-secondary);
+      margin: 0;
+      font-size: 15px;
+      max-width: 66ch;
+    }
+
+    .hero-actions {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 10px;
+      margin-top: 22px;
+    }
+
+    /* Engineering Spec Ledger Card */
+    .spec-ledger {
+      background: var(--bg-surface);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-lg);
+      box-shadow: var(--shadow-sm);
+      overflow: hidden;
+    }
+
+    .spec-ledger-head {
+      padding: 12px 18px;
+      background: var(--bg-subtle);
+      border-bottom: 1px solid var(--border-subtle);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 12.5px;
+      font-weight: 700;
+      color: var(--ink-secondary);
+    }
+
+    .spec-ledger-row {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 12px;
+      align-items: center;
+      padding: 12px 18px;
+      border-bottom: 1px solid var(--border-subtle);
+      font-size: 13px;
+    }
+
+    .spec-ledger-row:last-child {
+      border-bottom: none;
+    }
+
+    .spec-key {
+      color: var(--ink-secondary);
+      font-weight: 500;
+    }
+
+    .spec-val {
+      color: var(--ink-primary);
+      font-weight: 700;
+      font-family: var(--font-mono);
+      font-size: 12.5px;
+      white-space: nowrap;
+    }
+
+    /* Surfaces & Cards */
+    .surface-section {
+      background: var(--bg-surface);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-lg);
+      padding: 26px;
+      box-shadow: var(--shadow-xs);
+      margin-bottom: 28px;
+      min-width: 0;
+    }
+
+    .section-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      flex-wrap: wrap;
+      gap: 16px;
+      margin-bottom: 20px;
+    }
+
+    .section-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .grid-2 {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 20px;
+      margin-bottom: 20px;
+    }
+
+    .grid-4 {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 14px;
+    }
+
+    /* Controls Well */
+    .controls-well {
+      background: var(--bg-subtle);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-md);
+      padding: 16px;
+      margin-bottom: 18px;
+    }
+
+    label {
+      display: block;
+      font-size: 12.5px;
+      font-weight: 600;
+      color: var(--ink-secondary);
+      margin-bottom: 6px;
+    }
+
+    select,
+    input[type="number"],
+    input[type="text"] {
+      width: 100%;
+      height: 40px;
+      background: var(--bg-surface);
+      color: var(--ink-primary);
+      border: 1px solid var(--border-strong);
+      border-radius: var(--radius-sm);
+      padding: 0 12px;
+      font-family: var(--font-sans);
+      font-size: 13.5px;
+      font-weight: 600;
+      transition: border-color var(--ease), box-shadow var(--ease);
+    }
+
+    select:focus,
+    input[type="number"]:focus,
+    input[type="text"]:focus {
+      outline: none;
+      border-color: var(--brand-accent);
+      box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
+    }
+
+    /* Buttons */
     .btn {
-      display: inline-flex; align-items: center; justify-content: center; gap: 8px;
-      background: var(--accent); color: #041019; font-weight: 700; border: none;
-      padding: 10px 16px; border-radius: 8px; cursor: pointer; font-size: 13.5px; text-decoration: none;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 7px;
+      min-height: 40px;
+      padding: 0 16px;
+      border-radius: var(--radius-sm);
+      border: 1px solid transparent;
+      background: var(--brand-primary);
+      color: #FFFFFF;
+      font-family: var(--font-sans);
+      font-size: 13.5px;
+      font-weight: 600;
+      cursor: pointer;
+      text-decoration: none;
+      white-space: nowrap;
+      transition: background-color var(--ease), border-color var(--ease), color var(--ease), box-shadow var(--ease);
     }
-    .btn:hover { background: var(--accent-hover); color: #fff; }
+
+    .btn:hover {
+      background: var(--brand-primary-hover);
+      color: #FFFFFF;
+      text-decoration: none;
+    }
+
+    .btn-accent {
+      background: var(--brand-accent);
+      color: #FFFFFF;
+    }
+
+    .btn-accent:hover {
+      background: #1D4ED8;
+      color: #FFFFFF;
+    }
+
     .btn-danger {
-      background: #ef4444; color: #fff;
+      background: var(--danger-accent);
+      color: #FFFFFF;
     }
-    .btn-danger:hover { background: #dc2626; }
+
+    .btn-danger:hover {
+      background: #B91C1C;
+      color: #FFFFFF;
+    }
+
     .btn-secondary {
-      background: var(--card-alt); color: var(--text); border: 1px solid var(--border); font-weight: 600;
+      background: var(--bg-surface);
+      color: var(--ink-primary);
+      border: 1px solid var(--border-strong);
     }
-    .btn-secondary:hover { background: #334155; }
-    .btn-active {
-      border-color: var(--accent); background: rgba(56, 189, 248, 0.18); color: #7dd3fc;
+
+    .btn-secondary:hover {
+      background: var(--bg-subtle);
+      border-color: var(--ink-muted);
+      color: var(--ink-primary);
     }
-    .finding {
-      border: 1px solid rgba(239, 68, 68, 0.45); background: rgba(239, 68, 68, 0.1);
-      border-radius: 8px; padding: 12px 14px; margin-bottom: 10px;
+
+    .btn-sm {
+      min-height: 32px;
+      padding: 0 11px;
+      font-size: 12.5px;
+      font-weight: 600;
     }
-    .finding-ok {
-      border: 1px solid rgba(16, 185, 129, 0.45); background: rgba(16, 185, 129, 0.1);
-      border-radius: 8px; padding: 14px; color: #6ee7b7; font-weight: 600;
+
+    .filter-strip {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 7px;
+      margin-bottom: 20px;
     }
-    .sev {
-      display: inline-block; padding: 2px 7px; border-radius: 4px; font-size: 11px; font-weight: 700;
-      background: #ef4444; color: #fff; margin-right: 8px;
+
+    .filter-pill {
+      min-height: 32px;
+      padding: 0 11px;
+      font-size: 12.5px;
+      font-weight: 600;
+      border-radius: var(--radius-sm);
+      border: 1px solid var(--border-strong);
+      background: var(--bg-surface);
+      color: var(--ink-secondary);
+      cursor: pointer;
+      transition: background-color var(--ease), border-color var(--ease), color var(--ease);
     }
-    .sev-high { background: #f59e0b; color: #111827; }
-    .sev-ok { background: #10b981; color: #041019; }
+
+    .filter-pill:hover {
+      background: var(--bg-subtle);
+      color: var(--ink-primary);
+      border-color: var(--ink-muted);
+    }
+
+    .btn-active,
+    .filter-pill.btn-active {
+      background: var(--brand-primary);
+      border-color: var(--brand-primary);
+      color: #FFFFFF;
+    }
+
+    .btn-active:hover,
+    .filter-pill.btn-active:hover {
+      background: var(--brand-primary-hover);
+      color: #FFFFFF;
+    }
+
+    /* Side-by-Side Comparison Ledger Cards */
     .score-box {
-      border-radius: 10px; padding: 16px; border: 1px solid var(--border); background: #0b111e;
+      border-radius: var(--radius-md);
+      padding: 18px 20px;
+      border: 1px solid var(--border-subtle);
+      background: var(--bg-surface);
+      border-top-width: 3px;
     }
+
     .score-box-danger {
-      border-color: rgba(239, 68, 68, 0.55); background: rgba(239, 68, 68, 0.07);
+      border-top-color: var(--danger-accent);
     }
+
     .score-box-ok {
-      border-color: rgba(16, 185, 129, 0.55); background: rgba(16, 185, 129, 0.07);
+      border-top-color: var(--ok-accent);
     }
+
+    .score-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 6px;
+    }
+
+    .score-desc {
+      font-size: 12.5px;
+      color: var(--ink-secondary);
+      margin: 0 0 12px;
+      line-height: 1.45;
+    }
+
     .metric-row {
-      display: flex; justify-content: space-between; align-items: center;
-      padding: 7px 0; border-bottom: 1px solid rgba(51, 65, 85, 0.5); font-size: 13px;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 14px;
+      align-items: baseline;
+      padding: 9px 0;
+      border-top: 1px solid var(--border-subtle);
+      font-size: 13px;
     }
-    .metric-row:last-child { border-bottom: none; }
-    .plans { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-top: 16px; }
-    @media (max-width: 860px) { .plans { grid-template-columns: 1fr; } }
-    .plan-card {
-      background: var(--card-alt); border: 1px solid var(--border); border-radius: 10px; padding: 18px;
-      display: flex; flex-direction: column; justify-content: space-between;
+
+    .metric-label {
+      color: var(--ink-secondary);
+      font-weight: 500;
     }
-    .plan-price { font-size: 26px; font-weight: 800; margin: 8px 0; color: #7dd3fc; }
-    ul.feat { padding-left: 18px; color: var(--muted); font-size: 13.5px; margin: 10px 0 18px; }
-    ul.feat li { margin-bottom: 6px; }
+
+    .metric-val {
+      font-weight: 700;
+      font-variant-numeric: tabular-nums;
+      white-space: nowrap;
+      text-align: right;
+    }
+
+    .val-danger { color: var(--danger-ink); }
+    .val-warn { color: var(--warn-ink); }
+    .val-ok { color: var(--ok-ink); }
+    .val-accent { color: #1D4ED8; font-family: var(--font-mono); font-size: 12px; }
+
+    /* Severity / Status Badges */
+    .sev {
+      display: inline-flex;
+      align-items: center;
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+      white-space: nowrap;
+      background: var(--danger-bg);
+      color: var(--danger-ink);
+      border: 1px solid var(--danger-border);
+    }
+
+    .sev-high {
+      background: var(--warn-bg);
+      color: var(--warn-ink);
+      border-color: var(--warn-border);
+    }
+
+    .sev-ok {
+      background: var(--ok-bg);
+      color: var(--ok-ink);
+      border-color: var(--ok-border);
+    }
+
+    /* Comparison Table */
+    .table-wrap {
+      overflow-x: auto;
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-md);
+      margin-bottom: 20px;
+    }
+
     table.chaos-table {
-      width: 100%; border-collapse: collapse; font-size: 12.5px; margin-top: 12px;
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+      background: var(--bg-surface);
     }
-    table.chaos-table th, table.chaos-table td {
-      border: 1px solid var(--border); padding: 9px 10px; text-align: left; vertical-align: top;
+
+    table.chaos-table th,
+    table.chaos-table td {
+      padding: 11px 14px;
+      text-align: left;
+      vertical-align: top;
+      border-bottom: 1px solid var(--border-subtle);
     }
-    table.chaos-table th { background: #0d1526; color: #94a3b8; font-weight: 700; }
-    footer { margin-top: 44px; padding-top: 20px; border-top: 1px solid var(--border); color: var(--muted); font-size: 13px; display: flex; justify-content: space-between; flex-wrap: wrap; gap: 12px; }
-    a { color: #38bdf8; }
+
+    table.chaos-table th {
+      background: var(--bg-subtle);
+      color: var(--ink-secondary);
+      font-weight: 700;
+      font-size: 12px;
+      letter-spacing: 0.01em;
+    }
+
+    table.chaos-table tr:last-child td {
+      border-bottom: none;
+    }
+
+    .cell-naive {
+      color: #991B1B;
+      background: rgba(254, 242, 242, 0.45);
+    }
+
+    .cell-watchdog {
+      color: #065F46;
+      background: rgba(236, 253, 245, 0.45);
+    }
+
+    /* Dark Obsidian Precision Code & Terminal Panes */
+    .code-pane {
+      border-radius: var(--radius-md);
+      border: 1px solid #1E293B;
+      background: var(--bg-code);
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .code-pane-bar {
+      background: var(--bg-code-header);
+      border-bottom: 1px solid #334155;
+      padding: 9px 14px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .code-pane-title {
+      color: #E2E8F0;
+      font-size: 12.5px;
+      font-weight: 600;
+      margin: 0;
+    }
+
+    .code-pane {
+      min-width: 0;
+    }
+
+    .code-pane pre,
+    .code-pane textarea {
+      width: 100%;
+      background: var(--bg-code);
+      color: #E2E8F0;
+      border: none;
+      padding: 14px;
+      margin: 0;
+      font-family: var(--font-mono);
+      font-size: 12.5px;
+      line-height: 1.55;
+      overflow-x: auto;
+      resize: vertical;
+    }
+
+    .code-pane pre:focus,
+    .code-pane textarea:focus {
+      outline: none;
+    }
+
+    /* License Unlock Strip */
+    .license-strip {
+      background: var(--bg-surface);
+      border: 1px solid var(--border-strong);
+      border-left: 4px solid var(--brand-accent);
+      border-radius: var(--radius-md);
+      padding: 18px 22px;
+      margin-bottom: 28px;
+      box-shadow: var(--shadow-xs);
+    }
+
+    .license-strip-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-end;
+      flex-wrap: wrap;
+      gap: 16px;
+    }
+
+    .license-form-group {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      flex-wrap: wrap;
+      min-width: 340px;
+      flex: 1 1 340px;
+      max-width: 480px;
+    }
+
+    .license-form-group input {
+      flex: 1 1 210px;
+      font-family: var(--font-mono);
+      font-size: 13px;
+    }
+
+    .status-line {
+      margin-top: 10px;
+      padding-top: 10px;
+      border-top: 1px solid var(--border-subtle);
+      font-size: 12.5px;
+      color: var(--ink-secondary);
+    }
+
+    .status-warn { color: var(--warn-ink); }
+    .status-ok { color: var(--ok-ink); }
+    .status-danger { color: var(--danger-ink); }
+    .status-info { color: #1D4ED8; }
+
+    .polar-notice {
+      margin-top: 8px;
+      padding: 14px 16px;
+      border-radius: var(--radius-sm);
+      background: var(--brand-accent-soft);
+      border: 1px solid #93C5FD;
+      color: var(--ink-primary);
+      line-height: 1.55;
+      font-size: 13px;
+    }
+
+    .polar-notice-title {
+      color: #1D4ED8;
+    }
+
+    .polar-notice-link {
+      color: var(--ok-ink);
+      font-weight: 700;
+      text-decoration: underline;
+    }
+
+    /* Diagnostic Findings */
+    .finding {
+      border: 1px solid var(--danger-border);
+      border-left: 3px solid var(--danger-accent);
+      background: var(--bg-surface);
+      border-radius: var(--radius-sm);
+      padding: 12px 14px;
+      margin-bottom: 10px;
+      min-width: 0;
+    }
+
+    .finding-head {
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 8px;
+      font-size: 13px;
+      overflow-wrap: anywhere;
+    }
+
+    .finding-table {
+      color: var(--ink-muted);
+      font-size: 12px;
+      font-family: var(--font-mono);
+      overflow-wrap: anywhere;
+    }
+
+    .finding-msg {
+      font-size: 13px;
+      margin-top: 5px;
+      color: var(--ink-secondary);
+    }
+
+    .code-diff {
+      margin-top: 8px;
+      background: var(--bg-code);
+      border: 1px solid #1E293B;
+      border-radius: var(--radius-sm);
+      padding: 9px 11px;
+      font-family: var(--font-mono);
+      font-size: 11.5px;
+      line-height: 1.5;
+      overflow-x: auto;
+    }
+
+    .diff-del { color: #FDA4AF; }
+    .diff-add { color: #6EE7B7; }
+
+    .finding-ok {
+      border: 1px solid var(--ok-border);
+      background: var(--ok-bg);
+      border-radius: var(--radius-sm);
+      padding: 13px 15px;
+      color: var(--ok-ink);
+      font-weight: 700;
+      font-size: 13.5px;
+    }
+
+    /* Pricing Grid */
+    .plans {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 18px;
+      margin-top: 20px;
+    }
+
+    .plan-card {
+      background: var(--bg-surface);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-md);
+      padding: 22px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      transition: border-color var(--ease), box-shadow var(--ease);
+    }
+
+    .plan-card-featured {
+      border: 2px solid var(--brand-accent);
+      box-shadow: var(--shadow-sm);
+    }
+
+    .plan-tier {
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--ink-muted);
+      letter-spacing: 0.02em;
+    }
+
+    .plan-tier-featured {
+      color: #1D4ED8;
+    }
+
+    .plan-price {
+      font-size: 32px;
+      font-weight: 800;
+      letter-spacing: -0.025em;
+      margin: 8px 0 4px;
+      color: var(--ink-primary);
+      font-variant-numeric: tabular-nums;
+    }
+
+    .plan-period {
+      font-size: 14px;
+      color: var(--ink-muted);
+      font-weight: 500;
+    }
+
+    .plan-subtitle {
+      font-size: 13.5px;
+      color: var(--ink-primary);
+      font-weight: 600;
+      margin-bottom: 12px;
+    }
+
+    ul.feat {
+      padding-left: 18px;
+      color: var(--ink-secondary);
+      font-size: 13.5px;
+      margin: 0 0 20px;
+    }
+
+    ul.feat li {
+      margin-bottom: 7px;
+    }
+
+    .manifest-box {
+      margin-top: 20px;
+      padding: 18px 20px;
+      border-radius: var(--radius-md);
+      background: var(--bg-subtle);
+      border: 1px solid var(--border-subtle);
+    }
+
+    .manifest-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-bottom: 12px;
+    }
+
+    .manifest-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 16px;
+      font-size: 13px;
+      color: var(--ink-secondary);
+      line-height: 1.65;
+    }
+
+    /* Footer */
+    footer {
+      margin-top: 40px;
+      padding-top: 22px;
+      border-top: 1px solid var(--border-subtle);
+      color: var(--ink-muted);
+      font-size: 13px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+
+    .footer-links {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 14px;
+    }
+
+    /* Responsive Breakpoints */
+    @media (max-width: 960px) {
+      .hero {
+        grid-template-columns: minmax(0, 1fr);
+        gap: 22px;
+      }
+      .grid-2,
+      .plans,
+      .manifest-grid {
+        grid-template-columns: minmax(0, 1fr);
+      }
+      .grid-4 {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+    }
+
+    @media (max-width: 640px) {
+      .topbar-inner {
+        padding: 0 16px;
+      }
+      .nav-links {
+        display: none;
+      }
+      .container {
+        padding: 24px 16px 56px;
+      }
+      .surface-section {
+        padding: 18px 16px;
+      }
+      .grid-4 {
+        grid-template-columns: minmax(0, 1fr);
+      }
+      .sev {
+        white-space: normal;
+        line-height: 1.35;
+      }
+      .table-wrap {
+        border: none;
+      }
+      table.chaos-table,
+      table.chaos-table tbody,
+      table.chaos-table tr,
+      table.chaos-table td {
+        display: block;
+        width: 100%;
+      }
+      table.chaos-table thead {
+        display: none;
+      }
+      table.chaos-table tr {
+        border: 1px solid var(--border-subtle);
+        border-radius: var(--radius-sm);
+        margin-bottom: 10px;
+        overflow: hidden;
+      }
+      table.chaos-table tr:last-child {
+        margin-bottom: 0;
+      }
+      table.chaos-table td {
+        border-bottom: 1px solid var(--border-subtle);
+        padding: 10px 12px;
+      }
+      table.chaos-table td:last-child {
+        border-bottom: none;
+      }
+      code {
+        overflow-wrap: anywhere;
+      }
+      .license-form-group {
+        min-width: 0;
+        width: 100%;
+      }
+      select,
+      input[type="number"],
+      input[type="text"] {
+        font-size: 16px;
+      }
+      .metric-row {
+        grid-template-columns: 1fr;
+        gap: 3px;
+      }
+      .metric-val {
+        text-align: left;
+        white-space: normal;
+      }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      html {
+        scroll-behavior: auto;
+      }
+      *, *::before, *::after {
+        transition-duration: 0.01ms !important;
+        animation-duration: 0.01ms !important;
+      }
+    }
   </style>
 </head>
 <body>
-  <div class="container">
-    <header>
+  <a class="skip-link" href="#chaos-simulator">Skip to workbench</a>
+
+  <nav class="topbar" aria-label="Primary navigation">
+    <div class="topbar-inner">
+      <a class="brand-lockup" href="#">
+        <span class="brand-mark" aria-hidden="true">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+            <path d="m9 12 2 2 4-4"/>
+          </svg>
+        </span>
+        <span>Billing Watchdog v2</span>
+      </a>
+      <div class="nav-links">
+        <a href="#chaos-simulator">Fault Simulator</a>
+        <a href="#sql-linter-section">SQL &amp; AI Linter</a>
+        <a href="#reconciler-demo">Reconciler</a>
+        <a href="#self-hosted-license">Pricing</a>
+      </div>
+      <a class="nav-github" href="https://github.com/mariostosic0806/billing-watchdog">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+          <path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"/>
+        </svg>
+        <span class="tabular">Action v2.3.0</span>
+      </a>
+    </div>
+  </nav>
+
+  <main class="container">
+    <!-- EDITORIAL HERO + ENGINEERING SPEC LEDGER -->
+    <header class="hero">
       <div>
-        <div style="display:flex;gap:8px;flex-wrap:wrap;">
-          <span class="badge">v2.0 • Deterministic Stripe ↔ Postgres State Machine</span>
-          <span class="badge" style="background:rgba(239,68,68,0.15);color:#fca5a5;border-color:rgba(239,68,68,0.4);">50-Event Chaos Webhook Simulator</span>
-          <span class="badge" style="background:rgba(16,185,129,0.15);color:#6ee7b7;border-color:rgba(16,185,129,0.35);">Active Credit Circuit-Breaker + Read-Only Reconciler</span>
-        </div>
-        <h1>Billing Watchdog v2 — Stripe ↔ Postgres/Supabase Integrity Suite</h1>
+        <span class="eyebrow-pill">
+          <span class="eyebrow-dot" aria-hidden="true"></span>
+          <span>v2.3.0 · Self-Hosted Stripe &amp; Supabase Integrity</span>
+        </span>
+        <h1>Stop billing drift and credit leaks before migrations ship.</h1>
         <p class="sub">
-          Standard AI-generated webhook handlers fail on parallel Vercel cold-start bursts, out-of-order Stripe cancellations, post-consumption disputes, and multi-bucket credit expiration. Test the failure modes live in your browser below, lint your <code>.sql</code> schema offline, and deploy the deterministic v2 engine in your CI/CD.
+          Simulate 50 concurrent Stripe webhook failures, lint SQL schemas and streaming AI routes in browser memory, and enforce deterministic integer-cent ledger invariants in your own CI/CD.
         </p>
+        <div class="hero-actions">
+          <a href="#sql-linter-section" class="btn">Run Offline SQL &amp; Code Linter</a>
+          <a href="#self-hosted-license" class="btn btn-secondary">Get Self-Hosted Pro ($49/mo)</a>
+        </div>
       </div>
-      <div style="display:flex;gap:10px;flex-wrap:wrap;">
-        <a href="#chaos-simulator" class="btn btn-danger">⚡ Run 50-Event Fault Test</a>
-        <a href="#self-hosted-license" class="btn">Get Pro Watchdog v2 ($49/mo)</a>
-        <a href="https://github.com/mariostosic0806/billing-watchdog" class="btn btn-secondary">GitHub Action &amp; Docs →</a>
-      </div>
+
+      <aside class="spec-ledger" aria-label="Architecture guarantees">
+        <div class="spec-ledger-head">
+          <span>Runtime Guarantees</span>
+          <span class="tabular">Zero Cloud Lock-In</span>
+        </div>
+        <div class="spec-ledger-row">
+          <span class="spec-key">Credential Isolation</span>
+          <span class="spec-val">0 DB/Stripe keys sent</span>
+        </div>
+        <div class="spec-ledger-row">
+          <span class="spec-key">Monetary Arithmetic</span>
+          <span class="spec-val tabular">INTEGER cents only</span>
+        </div>
+        <div class="spec-ledger-row">
+          <span class="spec-key">CI &amp; Agent Outputs</span>
+          <span class="spec-val tabular">SARIF 2.1.0 + Fix MD</span>
+        </div>
+        <div class="spec-ledger-row">
+          <span class="spec-key">Verified Suite</span>
+          <span class="spec-val tabular">113 / 113 passing</span>
+        </div>
+      </aside>
     </header>
 
     <!-- ================================================================== -->
-    <!-- MODULE 1 & 4: LIVE STRIPE WEBHOOK CHAOS TEST & LEAK CALCULATOR     -->
+    <!-- SECTION 1: WEBHOOK FAULT-INJECTION SIMULATOR & LEAK CALCULATOR     -->
     <!-- ================================================================== -->
-    <div class="card" id="chaos-simulator" style="margin-bottom:24px;border-color:rgba(56,189,248,0.5);">
-      <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:12px;margin-bottom:14px;">
+    <section class="surface-section" id="chaos-simulator">
+      <div class="section-header">
         <div>
-          <span class="badge" style="margin-bottom:6px;">INTERACTIVE STATE-MACHINE BENCHMARK • PURE INTEGER CENTS</span>
-          <h2>1. Live Stripe Webhook Chaos Test &amp; Revenue Leak Calculator (50-Event Storm)</h2>
-          <p class="sub" style="font-size:13.5px;">
-            Simulate <strong>50 concurrent &amp; out-of-order Stripe webhook deliveries</strong> against a standard AI-generated webhook handler vs. the deterministic <strong>Billing Watchdog v2 State Machine</strong> (all 7 state-machine invariants enforced).
+          <h2>1. Webhook Fault Simulator &amp; Revenue Leak Calculator</h2>
+          <p class="sub" style="font-size:14px;">
+            Compare a naive AI-generated Stripe webhook handler against the deterministic Billing Watchdog v2 state machine across 50 concurrent and out-of-order deliveries.
           </p>
         </div>
-        <div style="display:flex;gap:8px;flex-wrap:wrap;">
-          <button type="button" class="btn btn-danger" onclick="runChaosSimulation('ALL')">⚡ Fire 50-Event Chaos Storm</button>
-          <button type="button" class="btn btn-secondary" onclick="copyQuarantineSql()">📋 Copy Circuit-Breaker SQL</button>
+        <div class="section-actions">
+          <button type="button" class="btn btn-secondary" onclick="copyQuarantineSql()">Copy Circuit-Breaker SQL</button>
+          <button type="button" class="btn btn-danger" onclick="runChaosSimulation('ALL')">Run 50-Event Fault Test</button>
         </div>
       </div>
 
-      <div class="grid-4">
-        <div>
-          <label for="chaos-plan-price">SaaS Plan Price (USD Integer Cents)</label>
-          <select id="chaos-plan-price" onchange="runChaosSimulation(currentChaosFilter)">
-            <option value="2900">$29.00 / mo (2,900 integer cents)</option>
-            <option value="4900" selected>$49.00 / mo (4,900 integer cents)</option>
-            <option value="9900">$99.00 / mo (9,900 integer cents)</option>
-            <option value="24900">$249.00 / mo (24,900 integer cents)</option>
-          </select>
-        </div>
-        <div>
-          <label for="chaos-plan-credits">Included Monthly Plan Credits</label>
-          <select id="chaos-plan-credits" onchange="runChaosSimulation(currentChaosFilter)">
-            <option value="1000">1,000 AI / API Credits</option>
-            <option value="2000" selected>2,000 AI / API Credits</option>
-            <option value="5000">5,000 AI / API Credits</option>
-            <option value="10000">10,000 AI / API Credits</option>
-          </select>
-        </div>
-        <div>
-          <label for="chaos-monthly-subs">Active Paying Subscriptions</label>
-          <input type="number" id="chaos-monthly-subs" value="500" min="10" max="100000" step="50" oninput="runChaosSimulation(currentChaosFilter)" />
-        </div>
-        <div>
-          <label for="chaos-quarantine-threshold">Circuit-Breaker Threshold (Cents)</label>
-          <select id="chaos-quarantine-threshold" onchange="runChaosSimulation(currentChaosFilter)">
-            <option value="1000">$10.00 (1,000 integer cents)</option>
-            <option value="2500" selected>$25.00 (2,500 integer cents)</option>
-            <option value="5000">$50.00 (5,000 integer cents)</option>
-          </select>
+      <div class="controls-well">
+        <div class="grid-4">
+          <div>
+            <label for="chaos-plan-price">SaaS Plan Price (Integer Cents)</label>
+            <select id="chaos-plan-price" onchange="runChaosSimulation(currentChaosFilter)">
+              <option value="2900">$29 / mo (2,900c)</option>
+              <option value="4900" selected>$49 / mo (4,900c)</option>
+              <option value="9900">$99 / mo (9,900c)</option>
+              <option value="24900">$249 / mo (24,900c)</option>
+            </select>
+          </div>
+          <div>
+            <label for="chaos-plan-credits">Monthly Included Credits</label>
+            <select id="chaos-plan-credits" onchange="runChaosSimulation(currentChaosFilter)">
+              <option value="1000">1,000 AI credits</option>
+              <option value="2000" selected>2,000 AI credits</option>
+              <option value="5000">5,000 AI credits</option>
+              <option value="10000">10,000 AI credits</option>
+            </select>
+          </div>
+          <div>
+            <label for="chaos-monthly-subs">Active Paying Subscriptions</label>
+            <input type="number" id="chaos-monthly-subs" class="tabular" value="500" min="10" max="100000" step="50" oninput="runChaosSimulation(currentChaosFilter)" />
+          </div>
+          <div>
+            <label for="chaos-quarantine-threshold">Quarantine Threshold (Cents)</label>
+            <select id="chaos-quarantine-threshold" onchange="runChaosSimulation(currentChaosFilter)">
+              <option value="1000">$10.00 (1,000c)</option>
+              <option value="2500" selected>$25.00 (2,500c)</option>
+              <option value="5000">$50.00 (5,000c)</option>
+            </select>
+          </div>
         </div>
       </div>
 
-      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px;">
-        <button type="button" id="btn-filter-ALL" class="btn btn-secondary btn-active" style="padding:6px 12px;font-size:12px;" onclick="runChaosSimulation('ALL')">All 4 Chaos Vectors + 7 State-Machine Edge Cases</button>
-        <button type="button" id="btn-filter-BURST" class="btn btn-secondary" style="padding:6px 12px;font-size:12px;" onclick="runChaosSimulation('BURST')">Edge 1 &amp; 3: 20x Burst + Self-Echo Idempotency</button>
-        <button type="button" id="btn-filter-OOO" class="btn btn-secondary" style="padding:6px 12px;font-size:12px;" onclick="runChaosSimulation('OOO')">Edge 2: Out-of-Order Delete (t=100) Before Update (t=90)</button>
-        <button type="button" id="btn-filter-MANUAL" class="btn btn-secondary" style="padding:6px 12px;font-size:12px;" onclick="runChaosSimulation('MANUAL')">Edge 4: Partial Manual Edit (SKIPPED_MANUAL_EDIT)</button>
-        <button type="button" id="btn-filter-MULTI" class="btn btn-secondary" style="padding:6px 12px;font-size:12px;" onclick="runChaosSimulation('MULTI')">Edge 5: 3+ Overlapping Sources (1→2→3, 2→1→3, 3→2→1)</button>
-        <button type="button" id="btn-filter-DELETED" class="btn btn-secondary" style="padding:6px 12px;font-size:12px;" onclick="runChaosSimulation('DELETED')">Edge 6: Deleted External Stripe Entities</button>
-        <button type="button" id="btn-filter-DISPUTE" class="btn btn-secondary" style="padding:6px 12px;font-size:12px;" onclick="runChaosSimulation('DISPUTE')">Edge 7a: Refund/Dispute Clawback &gt; Balance</button>
-        <button type="button" id="btn-filter-ARITH" class="btn btn-secondary" style="padding:6px 12px;font-size:12px;" onclick="runChaosSimulation('ARITH')">Edge 7b: 100% Discount &amp; &gt; Price Floor Clamp ($0.01)</button>
-        <button type="button" id="btn-filter-STREAM" class="btn btn-secondary" style="padding:6px 12px;font-size:12px;" onclick="runChaosSimulation('STREAM')">Edge 8: 50x Parallel LLM Stream Hold (onFinish Race)</button>
+      <div class="filter-strip" role="group" aria-label="State machine edge-case filters">
+        <button type="button" id="btn-filter-ALL" class="filter-pill btn-active" onclick="runChaosSimulation('ALL')">All Vectors (8)</button>
+        <button type="button" id="btn-filter-BURST" class="filter-pill" onclick="runChaosSimulation('BURST')">Edge 1 &amp; 3: 20x Burst + Self-Echo</button>
+        <button type="button" id="btn-filter-OOO" class="filter-pill" onclick="runChaosSimulation('OOO')">Edge 2: Out-of-Order Delete</button>
+        <button type="button" id="btn-filter-MANUAL" class="filter-pill" onclick="runChaosSimulation('MANUAL')">Edge 4: Manual Edit Guard</button>
+        <button type="button" id="btn-filter-MULTI" class="filter-pill" onclick="runChaosSimulation('MULTI')">Edge 5: 3+ Overlapping Buckets</button>
+        <button type="button" id="btn-filter-DELETED" class="filter-pill" onclick="runChaosSimulation('DELETED')">Edge 6: Deleted Stripe Entities</button>
+        <button type="button" id="btn-filter-DISPUTE" class="filter-pill" onclick="runChaosSimulation('DISPUTE')">Edge 7a: Clawback &gt; Balance</button>
+        <button type="button" id="btn-filter-ARITH" class="filter-pill" onclick="runChaosSimulation('ARITH')">Edge 7b: $0.01 Floor Clamp</button>
+        <button type="button" id="btn-filter-STREAM" class="filter-pill" onclick="runChaosSimulation('STREAM')">Edge 8: 50x LLM Stream Hold</button>
       </div>
 
-      <div class="grid" style="margin-bottom:16px;">
+      <div class="grid-2">
         <div class="score-box score-box-danger">
-          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
-            <h3 style="color:#fca5a5;margin:0;">❌ Naive AI-Generated Webhook Handler</h3>
+          <div class="score-head">
+            <h3>Naive AI-Generated Webhook Handler</h3>
             <span class="sev">4 / 4 VECTORS FAILED</span>
           </div>
-          <p style="font-size:12px;color:var(--muted);margin:0 0 10px;">
+          <p class="score-desc">
             Standard <code>if (event.type === 'invoice.paid')</code> without canonical invoice locks, UTC watermarks, or multi-bucket provenance.
           </p>
           <div class="metric-row">
-            <span>Unbacked Compute Credits Leaked (Single Storm):</span>
-            <strong id="naive-leaked-credits" style="color:#fca5a5;font-size:14px;">+47,200 credits</strong>
+            <span class="metric-label">Unbacked Compute Credits Leaked (Single Storm)</span>
+            <strong id="naive-leaked-credits" class="metric-val val-danger">+43,680 credits</strong>
           </div>
           <div class="metric-row">
-            <span>Direct Financial Leak (Single Storm):</span>
-            <strong id="naive-leaked-usd" style="color:#fca5a5;font-size:14px;">$1,156.40 (115,640 cents)</strong>
+            <span class="metric-label">Direct Financial Leak (Single Storm)</span>
+            <strong id="naive-leaked-usd" class="metric-val val-danger">$1,070.16 (107,016 integer cents)</strong>
           </div>
           <div class="metric-row">
-            <span>Projected Annual SaaS Drift Exposure (at 2% incident rate):</span>
-            <strong id="naive-annual-exposure" style="color:#ef4444;font-size:15px;">$13,876.80 / yr</strong>
+            <span class="metric-label">Projected Annual Drift Exposure (2% incident rate)</span>
+            <strong id="naive-annual-exposure" class="metric-val val-danger">$32,104.80 / yr</strong>
           </div>
           <div class="metric-row">
-            <span>Paid Top-Up &amp; Support Credits Wiped on Cancel:</span>
-            <strong id="naive-wiped-credits" style="color:#fbbf24;">700 customer credits destroyed</strong>
+            <span class="metric-label">Paid Top-Up &amp; Support Credits Wiped on Cancel</span>
+            <strong id="naive-wiped-credits" class="metric-val val-warn">700 customer credits destroyed</strong>
           </div>
           <div class="metric-row">
-            <span>Refund/Dispute Negative Balance Guard:</span>
-            <strong style="color:#fca5a5;">CRASH (HTTP 500 Retry Storm / -4,200 bal)</strong>
+            <span class="metric-label">Refund/Dispute Negative Balance Guard</span>
+            <strong class="metric-val val-danger">HTTP 500 Retry Storm (-4,200 bal)</strong>
           </div>
         </div>
 
         <div class="score-box score-box-ok">
-          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
-            <h3 style="color:#6ee7b7;margin:0;">✅ Billing Watchdog v2 State Machine + Circuit-Breaker</h3>
+          <div class="score-head">
+            <h3>Billing Watchdog v2 State Machine + Circuit-Breaker</h3>
             <span class="sev sev-ok">50 / 50 EVENTS DETERMINISTIC</span>
           </div>
-          <p style="font-size:12px;color:var(--muted);margin:0 0 10px;">
+          <p class="score-desc">
             Atomic canonical payment locks, <code>last_stripe_event_created_utc</code> watermarks, <code>SKIPPED_MANUAL_SUPPORT_GRANT</code> protection &amp; auto-quarantine.
           </p>
           <div class="metric-row">
-            <span>Unbacked Compute Credits Leaked:</span>
-            <strong style="color:#6ee7b7;font-size:14px;">0 credits (100% blocked)</strong>
+            <span class="metric-label">Unbacked Compute Credits Leaked</span>
+            <strong class="metric-val val-ok">0 credits (100% blocked)</strong>
           </div>
           <div class="metric-row">
-            <span>Direct Financial Leak:</span>
-            <strong style="color:#6ee7b7;font-size:14px;">$0.00 (0 integer cents)</strong>
+            <span class="metric-label">Direct Financial Leak</span>
+            <strong class="metric-val val-ok">$0.00 (0 integer cents)</strong>
           </div>
           <div class="metric-row">
-            <span>3-Bucket Deactivation Order Invariance (<code>1→2→3</code>, <code>2→1→3</code>, <code>3→2→1</code>):</span>
-            <strong style="color:#6ee7b7;">700 === 700 === 700 credits (Exact Match)</strong>
+            <span class="metric-label">3-Bucket Deactivation Order Invariance (1→2→3, 2→1→3, 3→2→1)</span>
+            <strong class="metric-val val-ok">700 === 700 === 700 (Exact Match)</strong>
           </div>
           <div class="metric-row">
-            <span>Manual Support Grants Preserved (<code>SKIPPED_MANUAL_SUPPORT_GRANT</code>):</span>
-            <strong style="color:#6ee7b7;">200 / 200 bonus credits untouched</strong>
+            <span class="metric-label">Manual Support Grants Preserved</span>
+            <strong class="metric-val val-ok">200 / 200 credits untouched</strong>
           </div>
           <div class="metric-row">
-            <span>Active Runaway Credit Circuit-Breaker:</span>
-            <strong id="watchdog-quarantine-status" style="color:#38bdf8;">is_billing_quarantined = TRUE (2 accounts frozen)</strong>
+            <span class="metric-label">Active Runaway Credit Circuit-Breaker</span>
+            <strong id="watchdog-quarantine-status" class="metric-val val-accent">is_billing_quarantined = TRUE (2 frozen)</strong>
           </div>
         </div>
       </div>
 
-      <div style="overflow-x:auto;margin-bottom:14px;">
+      <div class="table-wrap">
         <table class="chaos-table">
           <thead>
             <tr>
-              <th style="width:22%;">Webhook Fault-Injection Test Scenario (Events)</th>
-              <th style="width:39%;">Naive AI Webhook Handler Outcome</th>
-              <th style="width:39%;">Billing Watchdog v2 Deterministic State Machine</th>
+              <th style="width:24%;">Webhook Fault-Injection Test Scenario (Events)</th>
+              <th style="width:38%;">Naive AI Webhook Handler Outcome</th>
+              <th style="width:38%;">Billing Watchdog v2 Deterministic State Machine</th>
             </tr>
           </thead>
           <tbody id="chaos-comparison-tbody"></tbody>
         </table>
       </div>
 
-      <div class="grid" style="margin-bottom:0;">
-        <div>
-          <label>Live Chaos Event Stream &amp; Dry-Run State Transition Log (<code>oldState → newState</code>)</label>
-          <pre id="chaos-event-log" style="height:190px;overflow-y:auto;"></pre>
+      <div class="grid-2" style="margin-bottom:0;">
+        <div class="code-pane">
+          <div class="code-pane-bar">
+            <label class="code-pane-title" for="chaos-event-log">Live Fault Stream &amp; Dry-Run State Transitions (<code>oldState → newState</code>)</label>
+          </div>
+          <pre id="chaos-event-log" style="height:210px;overflow-y:auto;"></pre>
         </div>
-        <div>
-          <label>Active Runaway Credit Circuit-Breaker SQL Patch (<code>is_billing_quarantined = true</code>) <span id="quarantine-lock-badge" class="sev" style="margin-left:6px;">🔒 PRO LICENSE REQUIRED</span></label>
-          <textarea id="quarantine-sql-output" rows="8" readonly></textarea>
+        <div class="code-pane">
+          <div class="code-pane-bar">
+            <label class="code-pane-title" for="quarantine-sql-output">Active Circuit-Breaker SQL Patch (<code>is_billing_quarantined</code>)</label>
+            <span id="quarantine-lock-badge" class="sev">PRO LICENSE REQUIRED</span>
+          </div>
+          <textarea id="quarantine-sql-output" rows="8" style="height:210px;" readonly></textarea>
         </div>
       </div>
-    </div>
+    </section>
 
     <!-- ================================================================== -->
-    <!-- PRO / LIFETIME LICENSE UNLOCK BAR                                  -->
+    <!-- PRO / LIFETIME LICENSE UNLOCK STRIP                                -->
     <!-- ================================================================== -->
-    <div class="card" style="margin-bottom:20px;border-color:rgba(56,189,248,0.45);background:linear-gradient(180deg,rgba(15,23,42,0.95),rgba(17,24,39,0.95));">
-      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;">
+    <section class="license-strip" aria-label="Self-hosted Pro license verification">
+      <div class="license-strip-row">
         <div>
-          <span class="badge">COMMERCIAL IP PROTECTION • DIAGNOSTIC vs. EXECUTION</span>
-          <h3 style="margin:2px 0 4px;font-size:15px;">🔒 Unlock Production SQL Remediation Export &amp; Self-Hosted Pro Engine</h3>
-          <p style="margin:0;font-size:12.5px;color:var(--muted);">
-            The free browser tools detect schema vulnerabilities and calculate your exact revenue leak. Enter your <code>BWV2-...</code> License Key (or <a href="#self-hosted-license" style="color:var(--accent);">purchase Pro $49/mo or Lifetime $149 below</a>) to unlock executable SQL patch export &amp; private repo access.
+          <h3 style="margin-bottom:4px;">Unlock Executable SQL Remediation Export &amp; Pro Engine</h3>
+          <p style="margin:0;font-size:13px;color:var(--ink-secondary);max-width:64ch;">
+            Browser detection and leak calculation are free. Verify your signed <code>BWV2E-...</code> license key (or <a href="#self-hosted-license">purchase Pro $49/mo or Lifetime $149 below</a>) to unlock production SQL exports.
           </p>
         </div>
-        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;min-width:320px;">
-          <input type="text" id="license-key-input" placeholder="BWV2-LIFETIME_TEAM-..." style="flex:1;min-width:210px;" />
-          <button type="button" class="btn" style="padding:9px 14px;font-size:12.5px;" onclick="unlockProPortal()">🔑 Unlock Pro Export</button>
+        <div class="license-form-group">
+          <label for="license-key-input" style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0);">Pro License Key</label>
+          <input type="text" id="license-key-input" placeholder="BWV2E-LIFETIME_TEAM-..." />
+          <button type="button" class="btn" onclick="unlockProPortal()">Unlock Pro Export</button>
         </div>
       </div>
-      <div id="license-status-msg" role="status" aria-live="polite" style="margin-top:8px;font-size:12px;color:var(--muted);">
-        Status: <strong style="color:#fbbf24;">FREE DIAGNOSTIC MODE (Remediation SQL Export Redacted)</strong>
+      <div id="license-status-msg" class="status-line" role="status" aria-live="polite">
+        Status: <strong class="status-warn">FREE DIAGNOSTIC MODE (Remediation SQL Export Redacted)</strong>
       </div>
-    </div>
+    </section>
 
     <!-- ================================================================== -->
-    <!-- MODULE 2: OFFLINE ZERO-CREDENTIAL SQL SCHEMA LINTER                -->
+    <!-- SECTION 2: OFFLINE ZERO-CREDENTIAL SQL, RLS & NEXT.JS LINTER       -->
     <!-- ================================================================== -->
-    <div class="grid" id="sql-linter-section">
-      <div class="card">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;flex-wrap:wrap;gap:8px;">
-          <h2>2. Paste <code>schema.sql</code>, <code>route.ts</code>, or <code>schema.prisma</code></h2>
+    <section class="grid-2" id="sql-linter-section" style="margin-bottom:28px;">
+      <div class="surface-section" style="margin-bottom:0;display:flex;flex-direction:column;">
+        <div style="margin-bottom:12px;">
+          <h2>2. Offline SQL, RLS &amp; Next.js Linter</h2>
+          <p class="sub" style="font-size:13.5px;margin-bottom:12px;">
+            Runs <strong>100% in browser memory</strong> — paste <code>schema.sql</code>, Supabase migrations, or Next.js webhook/AI routes.
+          </p>
           <div style="display:flex;gap:6px;flex-wrap:wrap;">
-            <button type="button" class="btn btn-secondary" style="padding:6px 10px;font-size:12px;" onclick="loadSampleSql('vulnerable')">Load Vulnerable SQL</button>
-            <button type="button" class="btn btn-secondary" style="padding:6px 10px;font-size:12px;" onclick="loadSampleSql('rls_idor')">Load Broken Multi-Tenant RLS</button>
-            <button type="button" class="btn btn-secondary" style="padding:6px 10px;font-size:12px;" onclick="loadSampleSql('nextjs')">Load Vulnerable Next.js + AI Stream route.ts</button>
-            <button type="button" class="btn btn-secondary" style="padding:6px 10px;font-size:12px;" onclick="loadSampleSql('hardened')">Load Hardened Schema</button>
+            <button type="button" class="filter-pill" onclick="loadSampleSql('vulnerable')">Vulnerable SQL</button>
+            <button type="button" class="filter-pill" onclick="loadSampleSql('rls_idor')">Broken Multi-Tenant RLS</button>
+            <button type="button" class="filter-pill" onclick="loadSampleSql('nextjs')">Next.js + AI Stream route.ts</button>
+            <button type="button" class="filter-pill" onclick="loadSampleSql('hardened')">Hardened Schema</button>
           </div>
         </div>
-        <p style="font-size:12.5px;color:var(--muted);margin-top:0;">
-          Runs <strong>100% in your browser memory</strong> (zero database credentials or Stripe keys required).
-        </p>
-        <textarea id="sql-input" rows="13" oninput="runSqlLinter()"></textarea>
-        <div style="margin-top:12px;display:flex;gap:10px;flex-wrap:wrap;">
-          <button type="button" class="btn" onclick="runSqlLinter()">Run Offline SQL Linter (&lt;10ms)</button>
-          <button type="button" class="btn btn-secondary" onclick="copyPatch()">📋 Copy Non-Blocking SQL Patch (Pro)</button>
-          <button type="button" class="btn btn-secondary" onclick="downloadPatch()">⬇ Download remediation.sql (Pro)</button>
+        <div class="code-pane" style="flex:1;">
+          <div class="code-pane-bar">
+            <label class="code-pane-title" for="sql-input">Input SQL Migration or TypeScript Route</label>
+          </div>
+          <textarea id="sql-input" rows="14" style="flex:1;min-height:290px;" oninput="runSqlLinter()"></textarea>
+        </div>
+        <div style="margin-top:14px;display:flex;gap:8px;flex-wrap:wrap;">
+          <button type="button" class="btn" onclick="runSqlLinter()">Run Offline Linter (&lt;10ms)</button>
+          <button type="button" class="btn btn-secondary" onclick="copyPatch()">Copy SQL Patch (Pro)</button>
+          <button type="button" class="btn btn-secondary" onclick="downloadPatch()">Download remediation.sql (Pro)</button>
         </div>
       </div>
 
-      <div class="card">
-        <h2>3. Group A Diagnostic Findings &amp; Non-Blocking SQL Patch</h2>
-        <div id="findings-container" style="margin-bottom:14px;"></div>
-        <label>Generated Non-Blocking PostgreSQL Remediation Patch (<code>NOT VALID</code> + <code>VALIDATE CONSTRAINT</code>) <span id="patch-lock-badge" class="sev" style="margin-left:6px;">🔒 PRO LICENSE REQUIRED</span></label>
-        <textarea id="patch-output" rows="9" readonly></textarea>
-      </div>
-    </div>
-
-    <div class="card" style="margin-bottom:24px;">
-      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:10px;">
-        <div>
-          <h2>4. Group B Live Simulation: Stripe ↔ Postgres Drift Reconciler (Checks 4, 5 &amp; 6)</h2>
+      <div class="surface-section" style="margin-bottom:0;display:flex;flex-direction:column;">
+        <div style="margin-bottom:12px;">
+          <h2>3. Diagnostic Findings &amp; Non-Blocking Patch</h2>
           <p class="sub" style="font-size:13.5px;">
-            See how the Read-Only CLI Watchdog (<code>node src/cli.ts scan --config reconcile.config.json</code>) reconciles live Stripe subscriptions &amp; paid invoices against your Postgres credit ledger using pure integer cents.
+            Detects missing balance checks, replay holes, permissive <code>USING (true)</code> policies, and unreserved <code>streamText()</code> routes.
+          </p>
+        </div>
+        <div id="findings-container" style="margin-bottom:14px;"></div>
+        <div class="code-pane" style="margin-top:auto;">
+          <div class="code-pane-bar">
+            <label class="code-pane-title" for="patch-output">Non-Blocking PostgreSQL Patch (<code>NOT VALID</code> + <code>VALIDATE</code>)</label>
+            <span id="patch-lock-badge" class="sev">PRO LICENSE REQUIRED</span>
+          </div>
+          <textarea id="patch-output" rows="9" readonly></textarea>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================================================================== -->
+    <!-- SECTION 3: GROUP B LIVE DRIFT RECONCILER SIMULATION                -->
+    <!-- ================================================================== -->
+    <section class="surface-section" id="reconciler-demo">
+      <div class="section-header" style="margin-bottom:14px;">
+        <div>
+          <h2>4. Stripe ↔ Postgres Drift Reconciler (Checks 4, 5 &amp; 6)</h2>
+          <p class="sub" style="font-size:14px;">
+            Preview how the Read-Only CLI Watchdog (<code>node src/cli.ts scan --config reconcile.config.json</code>) reconciles live Stripe subscriptions and paid invoices inside a single <code>REPEATABLE READ</code> snapshot.
           </p>
         </div>
         <button type="button" class="btn btn-secondary" onclick="toggleGroupBDemo()">Run 6-Check Reconciliation Demo</button>
       </div>
-      <pre id="group-b-report" style="max-height:300px;overflow-y:auto;"></pre>
-    </div>
+      <div class="code-pane">
+        <div class="code-pane-bar">
+          <span class="code-pane-title">Read-Only Diagnostic Snapshot Output</span>
+          <span class="sev sev-ok">INTEGER CENTS · UTC ISO-8601</span>
+        </div>
+        <pre id="group-b-report" style="max-height:300px;overflow-y:auto;"></pre>
+      </div>
+    </section>
 
     <!-- ================================================================== -->
-    <!-- COMMERCIAL SELF-HOSTED LICENSING (POLAR.SH MoR CHECKOUT)           -->
+    <!-- SECTION 4: SELF-HOSTED LICENSING & PACKAGE MANIFEST                -->
     <!-- ================================================================== -->
-    <div class="card" id="self-hosted-license">
-      <h2>5. Deploy Billing Watchdog v2 100% Self-Hosted in Your CI/CD (Zero Third-Party Cloud Access)</h2>
-      <p class="sub">
-        <strong>Why no cloud login dashboard?</strong> Because your production <code>DATABASE_URL</code> and <code>STRIPE_RESTRICTED_KEY</code> should <strong>never</strong> leave your infrastructure. Billing Watchdog v2 runs 100% inside your own terminal, GitHub Actions, or Kubernetes cronjob under PostgreSQL's strict read-only snapshot guarantee, with optional Dry-Run &amp; Active Quarantine Circuit-Breaker protection.
+    <section class="surface-section" id="self-hosted-license" style="margin-bottom:0;">
+      <h2>5. Deploy 100% Self-Hosted in Your CI/CD</h2>
+      <p class="sub" style="font-size:14px;">
+        Your production <code>DATABASE_URL</code> and <code>STRIPE_RESTRICTED_KEY</code> never leave your own GitHub Actions runner or infrastructure.
       </p>
 
       <div class="plans">
         <div class="plan-card">
           <div>
-            <span class="badge">FREE DIAGNOSTIC SCANNER</span>
-            <div class="plan-price">$0 <span style="font-size:14px;color:var(--muted);font-weight:400;">/ diagnostic preview</span></div>
-            <div style="font-size:13px;color:var(--text);font-weight:600;">Vulnerability Detection &amp; Revenue Leak Calculator</div>
+            <div class="plan-tier">FREE PR GATE &amp; DIAGNOSTIC</div>
+            <div class="plan-price">$0 <span class="plan-period">/ MIT action</span></div>
+            <div class="plan-subtitle">Vulnerability Detection &amp; Leak Calculator</div>
             <ul class="feat">
-              <li>100% Offline <code>.sql</code> Vulnerability Detection</li>
-              <li>Interactive 50-Event Webhook Chaos Benchmark</li>
-              <li>Detects Missing <code>CHECK (balance &gt;= 0)</code></li>
-              <li>Detects Missing <code>UNIQUE (stripe_event_id)</code></li>
-              <li>Calculates Annualized SaaS Drift Exposure ($)</li>
+              <li>Zero-credential GitHub Action (<code>@v2.3.0</code>)</li>
+              <li>OASIS SARIF 2.1.0 PR annotations</li>
+              <li>Prompt-injection-safe <code>--agent-fix-out</code></li>
+              <li>Detects missing <code>CHECK (&gt;= 0)</code> &amp; <code>UNIQUE</code></li>
+              <li>Static MCP SHA-256 lockfile verification</li>
             </ul>
           </div>
-          <a class="btn btn-secondary" href="#sql-input">Run Free Diagnostic Above ↑</a>
+          <a class="btn btn-secondary" href="#sql-linter-section">Run Free Diagnostic Above</a>
         </div>
 
-        <div class="plan-card" style="border-color:var(--accent);">
+        <div class="plan-card plan-card-featured">
           <div>
-            <span class="badge">SELF-HOSTED PRO WATCHDOG v2</span>
-            <div class="plan-price">$49 <span style="font-size:14px;color:var(--muted);font-weight:400;">/ month</span></div>
-            <div style="font-size:13px;color:var(--text);font-weight:600;">Full Source Code + Executable SQL Remediation Export</div>
+            <div class="plan-tier plan-tier-featured">SELF-HOSTED PRO WATCHDOG v2</div>
+            <div class="plan-price">$49 <span class="plan-period">/ month</span></div>
+            <div class="plan-subtitle">Full Source Code + Executable Remediation</div>
             <ul class="feat">
-              <li>Unlocks Full Non-Blocking SQL Remediation Export</li>
-              <li>Full Source: <code>state-machine.ts</code>, <code>webhook-firewall.ts</code>, <code>circuit-breaker.ts</code></li>
-              <li>Atomic PL/pgSQL <code>SELECT ... FOR UPDATE</code> Engine</li>
-              <li>Active Runaway Credit Circuit-Breaker (<code>is_billing_quarantined</code>)</li>
-              <li>Drop-In Next.js Webhook Firewall &amp; <code>executeGuardedAiStream</code> Middleware</li>
-              <li>Billing Audit Trail &amp; Reconciliation Report Export (Guest Checkout Backfill)</li>
+              <li>Unlocks full non-blocking SQL remediation export</li>
+              <li>Full source: <code>state-machine.ts</code>, <code>webhook-firewall.ts</code>, <code>circuit-breaker.ts</code></li>
+              <li>Atomic PL/pgSQL <code>SELECT ... FOR UPDATE</code> engine</li>
+              <li>Active runaway credit circuit-breaker (<code>is_billing_quarantined</code>)</li>
+              <li>Drop-in Next.js webhook firewall &amp; <code>executeGuardedAiStream</code></li>
+              <li>Billing audit trail &amp; guest checkout backfill reconciler</li>
             </ul>
           </div>
-          <button type="button" class="btn" onclick="startPolarCheckout('Pro Monthly Watchdog v2 ($49/mo)', 4900)">Buy via Polar.sh ($49/mo)</button>
+          <button type="button" class="btn btn-accent" onclick="startPolarCheckout('Pro Monthly Watchdog v2 ($49/mo)', 4900)">Buy via Polar.sh ($49/mo)</button>
         </div>
 
         <div class="plan-card">
           <div>
-            <span class="badge">LIFETIME TEAM LICENSE</span>
-            <div class="plan-price">$149 <span style="font-size:14px;color:var(--muted);font-weight:400;">one-time</span></div>
-            <div style="font-size:13px;color:var(--text);font-weight:600;">Self-Hosted Team Source Bundle + CI Workflow Templates</div>
+            <div class="plan-tier">LIFETIME TEAM LICENSE</div>
+            <div class="plan-price">$149 <span class="plan-period">one-time</span></div>
+            <div class="plan-subtitle">Self-Hosted Team Source Bundle + CI Templates</div>
             <ul class="feat">
-              <li>Lifetime Commercial License (<code>BWV2E-LIFETIME_TEAM-...</code>)</li>
-              <li>Full Deterministic Stripe ↔ Postgres State Machine Engine</li>
-              <li>Multi-Instance Serverless SQL Coordinator &amp; Schema Migration Templates</li>
+              <li>Lifetime commercial license (<code>BWV2E-LIFETIME_TEAM-...</code>)</li>
+              <li>Full deterministic Stripe ↔ Postgres state machine</li>
+              <li>Multi-instance serverless SQL coordinator &amp; migrations</li>
               <li>OASIS SARIF 2.1.0 &amp; Agent Remediation Packet (<code>--agent-fix-out</code>)</li>
-              <li>Ready-to-Merge GitHub Actions CI/CD Workflow &amp; MIT Agent Skill</li>
+              <li>Ready-to-merge GitHub Actions CI/CD workflow &amp; MIT Agent Skill</li>
             </ul>
           </div>
-          <button type="button" class="btn btn-secondary" onclick="startPolarCheckout('Lifetime Team License v2 ($149 One-Time)', 14900)">Buy Lifetime via Polar.sh ($149)</button>
+          <button type="button" class="btn" onclick="startPolarCheckout('Lifetime Team License v2 ($149 One-Time)', 14900)">Buy Lifetime via Polar.sh ($149)</button>
         </div>
       </div>
 
-      <div style="margin-top:18px;padding:16px 18px;border-radius:10px;background:rgba(15,23,42,0.85);border:1px solid var(--border);">
-        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:10px;">
-          <strong style="font-size:13.5px;color:#f8fafc;">📦 Inspect What You Receive Inside <code>billing-watchdog-pro-v2.zip</code> (6,500+ Lines • 113 Automated Tests • Zero Cloud Lock-In)</strong>
-          <span class="sev sev-ok">30-DAY MONEY-BACK GUARANTEE • INSTANT DIGITAL DELIVERY</span>
+      <div class="manifest-box">
+        <div class="manifest-head">
+          <strong style="font-size:13.5px;color:var(--ink-primary);">Inside <code>billing-watchdog-pro-v2.zip</code> (6,500+ Lines · 113 Automated Tests · Zero Cloud Lock-In)</strong>
+          <span class="sev sev-ok">30-DAY MONEY-BACK GUARANTEE · INSTANT DIGITAL DELIVERY</span>
         </div>
-        <div class="grid" style="margin-bottom:0;font-size:12.5px;color:var(--muted);">
+        <div class="manifest-grid">
           <div>
-            <code>src/state-machine.ts</code> (2,238 lines) — Two-Phase AI Stream Hold (<code>executeGuardedAiStream</code>), 7 Edge-Case Guards &amp; Billing Audit Trail Report Export<br/>
-            <code>src/watchdog.ts</code> (1,913 lines) — Read-Only PostgreSQL Snapshot Adapter, Bi-Directional Stripe Drift Reconciler &amp; Guest Checkout Backfill<br/>
+            <code>src/state-machine.ts</code> (2,238 lines) — Two-Phase AI Stream Hold (<code>executeGuardedAiStream</code>), 7 Edge-Case Guards &amp; Billing Audit Trail Report Export<br />
+            <code>src/watchdog.ts</code> (1,913 lines) — Read-Only PostgreSQL Snapshot Adapter, Bi-Directional Stripe Drift Reconciler &amp; Guest Checkout Backfill<br />
             <code>src/webhook-firewall.ts</code> &amp; <code>src/circuit-breaker.ts</code> — Atomic <code>SELECT ... FOR UPDATE</code> Coordinator &amp; Auto-Quarantine Engine
           </div>
           <div>
-            <code>src/code-scanner.ts</code>, <code>src/sarif.ts</code> &amp; <code>src/agent-fix.ts</code> — Static Scanner, OASIS SARIF 2.1.0 &amp; Prompt-Injection-Safe Agent Fix Packet<br/>
-            <code>test/*.test.ts</code> (113 / 113 passing tests) — Local CI/CD Webhook Idempotency &amp; Concurrency Test Suite, 20x Parallel Webhook Burst &amp; 50x AI Stream Race Benchmark<br/>
+            <code>src/code-scanner.ts</code>, <code>src/sarif.ts</code> &amp; <code>src/agent-fix.ts</code> — Static Scanner, OASIS SARIF 2.1.0 &amp; Prompt-Injection-Safe Agent Fix Packet<br />
+            <code>test/*.test.ts</code> (113 / 113 passing tests) — Local CI/CD Webhook Idempotency &amp; Concurrency Test Suite, 20x Parallel Burst &amp; 50x AI Stream Race Benchmark<br />
             <code>action.yml</code> &amp; <code>examples/</code> — Ready-to-merge GitHub Actions CI/CD workflow &amp; hardened PostgreSQL migration templates
           </div>
         </div>
       </div>
-    </div>
+    </section>
 
     <footer>
       <div>© 2026 Mario Stosic — Individual Software Developer (Serbia) · Support: <a href="mailto:mariostosic@prime-tech.rs">mariostosic@prime-tech.rs</a></div>
-      <div>
-        <a href="terms.html">Terms of Service</a> ·
-        <a href="privacy.html">Privacy Policy</a> ·
-        <a href="refund-policy.html">Refund Policy (30 Days)</a> ·
+      <div class="footer-links">
+        <a href="terms.html">Terms of Service</a>
+        <a href="privacy.html">Privacy Policy</a>
+        <a href="refund-policy.html">Refund Policy (30 Days)</a>
         <a href="https://github.com/mariostosic0806/billing-watchdog">GitHub Repository</a>
       </div>
     </footer>
-  </div>
+  </main>
 
   <script>
     let currentChaosFilter = "ALL";
@@ -502,7 +1511,6 @@
         const w = words.slice(j, (j += 16));
         const oldHash = hash.slice(0);
         for (let i = 0; i < 64; i++) {
-          const i2 = i + j;
           const w15 = w[i - 15], w2 = w[i - 2];
           const a = hash[0], e = hash[4];
           const temp1 =
@@ -563,17 +1571,17 @@
       isProLicenseUnlocked = true;
       if (statusEl) {
         statusEl.innerHTML =
-          'Status: <strong style="color:#6ee7b7;">✅ ' +
+          'Status: <strong class="status-ok">' +
           (labelSuffix || "PRO / LIFETIME LICENSE VERIFIED (Full SQL Remediation Export Unlocked)") +
           "</strong>";
       }
       if (qBadge) {
         qBadge.className = "sev sev-ok";
-        qBadge.textContent = "✅ PRO UNLOCKED";
+        qBadge.textContent = "PRO UNLOCKED";
       }
       if (pBadge) {
         pBadge.className = "sev sev-ok";
-        pBadge.textContent = "✅ PRO UNLOCKED";
+        pBadge.textContent = "PRO UNLOCKED";
       }
       runChaosSimulation(currentChaosFilter);
       runSqlLinter();
@@ -586,7 +1594,7 @@
       if (!match) {
         isProLicenseUnlocked = false;
         if (statusEl) {
-          statusEl.innerHTML = 'Status: <strong style="color:#fca5a5;">❌ Malformed BWV2E Ed25519 License Key.</strong>';
+          statusEl.innerHTML = 'Status: <strong class="status-danger">Malformed BWV2E Ed25519 License Key.</strong>';
         }
         return false;
       }
@@ -600,7 +1608,7 @@
       if (nowUnix > expUnix) {
         isProLicenseUnlocked = false;
         if (statusEl) {
-          statusEl.innerHTML = 'Status: <strong style="color:#fca5a5;">❌ License Key Expired (UTC Unix ' + expUnix + '). Renew via Polar / Pro Checkout below.</strong>';
+          statusEl.innerHTML = 'Status: <strong class="status-danger">License Key Expired (UTC Unix ' + expUnix + '). Renew via Polar checkout below.</strong>';
         }
         return false;
       }
@@ -610,7 +1618,7 @@
         (typeof window !== "undefined" && window.crypto && window.crypto.subtle);
       if (!subtle) {
         if (statusEl) {
-          statusEl.innerHTML = 'Status: <strong style="color:#fbbf24;">⚠️ Browser WebCrypto Ed25519 unavailable (HTTPS or localhost required).</strong>';
+          statusEl.innerHTML = 'Status: <strong class="status-warn">Browser WebCrypto Ed25519 unavailable (HTTPS or localhost required).</strong>';
         }
         return false;
       }
@@ -635,7 +1643,7 @@
 
       isProLicenseUnlocked = false;
       if (statusEl) {
-        statusEl.innerHTML = 'Status: <strong style="color:#fca5a5;">❌ Invalid Ed25519 License Signature.</strong>';
+        statusEl.innerHTML = 'Status: <strong class="status-danger">Invalid Ed25519 License Signature.</strong>';
       }
       return false;
     }
@@ -647,7 +1655,7 @@
 
       if (rawKey.indexOf("BWV2E-") === 0) {
         if (statusEl) {
-          statusEl.innerHTML = 'Status: <strong style="color:#38bdf8;">⏳ Verifying Asymmetric Ed25519 Signature...</strong>';
+          statusEl.innerHTML = 'Status: <strong class="status-info">Verifying Asymmetric Ed25519 Signature...</strong>';
         }
         verifyEd25519LicenseInBrowser(rawKey);
         return false;
@@ -660,7 +1668,7 @@
       } else {
         isProLicenseUnlocked = false;
         if (statusEl) {
-          statusEl.innerHTML = 'Status: <strong style="color:#fca5a5;">❌ Invalid License Key. Purchase Pro ($49/mo) or Lifetime ($149) below to receive your BWV2E-... key.</strong>';
+          statusEl.innerHTML = 'Status: <strong class="status-danger">Invalid License Key. Purchase Pro ($49/mo) or Lifetime ($149) below to receive your BWV2E-... key.</strong>';
         }
         return false;
       }
@@ -687,30 +1695,23 @@
       const thresholdCents = parseInt(document.getElementById("chaos-quarantine-threshold").value, 10) || 2500;
 
       // Pure integer arithmetic for all 4 chaos vectors (50 events total):
-      // Vector A (20 events): 20 parallel invoice.paid + checkout.session.completed in 1ms
-      const burstMultiplier = 19; // 19 extra duplicate grants on naive handler
+      const burstMultiplier = 19;
       const burstLeakedCredits = planCredits * burstMultiplier;
       const burstLeakedCents = planPriceCents * burstMultiplier;
 
-      // Vector B (10 events across 2 out-of-order subscription lifecycles):
-      // customer.subscription.deleted (t=100s) arrives BEFORE customer.subscription.updated (t=90s, status='active')
       const oooLeakedCredits = planCredits * 2;
       const oooLeakedCents = planPriceCents * 2;
 
-      // Vector C (8 events): Grant + 84% API consumption + 50% Partial Refund + 50% Charge Dispute
       const consumedBeforeDispute = Math.round((planCredits * 84) / 100);
       const remainingBeforeDispute = planCredits - consumedBeforeDispute;
       const disputeDeficitCredits = consumedBeforeDispute;
       const disputeDeficitCents = Math.round((planPriceCents * 84) / 100);
 
-      // Vector D (12 events): 3+ Overlapping Credit Sources (Free 100 + Monthly Sub + Top-Up 500 + Manual Support 200)
-      // tested in 3 deactivation orders: 1->2->3, 2->1->3, 3->2->1
-      const preservedTopUpAndSupport = 500 + 200; // 700 credits
+      const preservedTopUpAndSupport = 500 + 200;
 
       const totalNaiveLeakedCredits = burstLeakedCredits + oooLeakedCredits + disputeDeficitCredits;
       const totalNaiveLeakedCents = burstLeakedCents + oooLeakedCents + disputeDeficitCents;
 
-      // Annualized exposure assuming 2% of monthly subscribers trigger a retry burst, out-of-order webhook, or dispute race per year
       const affectedAccountsPerYear = Math.max(1, Math.round((monthlySubs * 2) / 100));
       const singleAccountAvgLeakCents = Math.round(totalNaiveLeakedCents / 4);
       const annualExposureCents = affectedAccountsPerYear * singleAccountAvgLeakCents * 12;
@@ -741,56 +1742,56 @@
       }
 
       document.getElementById("watchdog-quarantine-status").textContent =
-        "is_billing_quarantined = TRUE (" + quarantinedAccounts.length + " account(s) frozen >= " + thresholdCents + "c)";
+        "is_billing_quarantined = TRUE (" + quarantinedAccounts.length + " frozen >= " + thresholdCents + "c)";
 
       const rows = [
         {
           key: "BURST",
-          vector: "Edge 1 & 3 • 20x Parallel Burst & Self-Echo Idempotency (20 events in 1ms)",
-          naive: "❌ Race condition reads stale balance before UPDATE commits: grants " + (planCredits * 20).toLocaleString("en-US") + " credits instead of " + planCredits.toLocaleString("en-US") + " (+" + burstLeakedCredits.toLocaleString("en-US") + " leaked = " + formatUsdFromCents(burstLeakedCents) + "); re-applies self-echo webhooks.",
-          watchdog: "✅ Atomic canonical lock (invoice:in_pro_1), stripe_event_id dedup & live_state === last_applied_state self-echo guard (IGNORED_SELF_ECHO): applies 1/20, 0 credits leaked."
+          vector: "Edge 1 & 3 · 20x Parallel Burst & Self-Echo Idempotency (20 events in 1ms)",
+          naive: "FAIL: Race condition reads stale balance before UPDATE commits: grants " + (planCredits * 20).toLocaleString("en-US") + " credits instead of " + planCredits.toLocaleString("en-US") + " (+" + burstLeakedCredits.toLocaleString("en-US") + " leaked = " + formatUsdFromCents(burstLeakedCents) + "); re-applies self-echo webhooks.",
+          watchdog: "PASS: Atomic canonical lock (invoice:in_pro_1), stripe_event_id dedup & live_state === last_applied_state self-echo guard (IGNORED_SELF_ECHO): applies 1/20, 0 credits leaked."
         },
         {
           key: "OOO",
-          vector: "Edge 2 • Out-of-Order Webhook (10 events: t=100s delete before t=90s update)",
-          naive: "❌ Blindly overwrites 'canceled' with delayed t=90s 'active' payload, resurrecting 2 Zombie Subscriptions (" + formatUsdFromCents(oooLeakedCents) + " / +" + oooLeakedCredits.toLocaleString("en-US") + " credits leaked).",
-          watchdog: "✅ Enforces last_stripe_event_created_utc & last_reverted_at watermarks (t=90s <= t=100s): rejects stale update as IGNORED_OUT_OF_ORDER; status stays 'canceled'."
+          vector: "Edge 2 · Out-of-Order Webhook (10 events: t=100s delete before t=90s update)",
+          naive: "FAIL: Blindly overwrites 'canceled' with delayed t=90s 'active' payload, resurrecting 2 Zombie Subscriptions (" + formatUsdFromCents(oooLeakedCents) + " / +" + oooLeakedCredits.toLocaleString("en-US") + " credits leaked).",
+          watchdog: "PASS: Enforces last_stripe_event_created_utc & last_reverted_at watermarks (t=90s <= t=100s): rejects stale update as IGNORED_OUT_OF_ORDER; status stays 'canceled'."
         },
         {
           key: "MANUAL",
-          vector: "Edge 4 • Partial Manual Edit of Any Field & Support Grants (SKIPPED_MANUAL_EDIT)",
-          naive: "❌ Blind campaign revert overwrites admin's manual compare_at_price override (6,500c -> 5,900c) and wipes out +250 support goodwill credits.",
-          watchdog: "✅ Detects isolated manual change on any of 7 tracked fields, marks ALL active memberships SKIPPED_MANUAL_EDIT before clearing registry, and preserves SKIPPED_MANUAL_SUPPORT_GRANT."
+          vector: "Edge 4 · Partial Manual Edit of Any Field & Support Grants (SKIPPED_MANUAL_EDIT)",
+          naive: "FAIL: Blind campaign revert overwrites admin's manual compare_at_price override (6,500c -> 5,900c) and wipes out +250 support goodwill credits.",
+          watchdog: "PASS: Detects isolated manual change on any of 7 tracked fields, marks ALL active memberships SKIPPED_MANUAL_EDIT before clearing registry, and preserves SKIPPED_MANUAL_SUPPORT_GRANT."
         },
         {
           key: "MULTI",
-          vector: "Edge 5 • 3+ Overlapping Credit Sources in 3 Orders: 1→2→3, 2→1→3, 3→2→1 (12 events)",
-          naive: "❌ Flat credits_balance=0 reset on subscription cancel wipes out 500 non-expiring Top-Up credits + 200 Manual Support credits.",
-          watchdog: "✅ 100% order-invariant across 1→2→3, 2→1→3, 3→2→1: converges to exact baseline price (" + planPriceCents + "c) and preserves 500 Top-Up + 200 Support = 700 credits."
+          vector: "Edge 5 · 3+ Overlapping Credit Sources in 3 Orders: 1→2→3, 2→1→3, 3→2→1 (12 events)",
+          naive: "FAIL: Flat credits_balance=0 reset on subscription cancel wipes out 500 non-expiring Top-Up credits + 200 Manual Support credits.",
+          watchdog: "PASS: 100% order-invariant across 1→2→3, 2→1→3, 3→2→1: converges to exact baseline price (" + planPriceCents + "c) and preserves 500 Top-Up + 200 Support = 700 credits."
         },
         {
           key: "DELETED",
-          vector: "Edge 6 • Deleted External Entities in Stripe (deletedCustomers / deletedSubscriptions)",
-          naive: "❌ Throws unhandled Stripe 404 resource_missing mid-batch, aborting reconciliation for all remaining active subscribers.",
-          watchdog: "✅ Gracefully isolates deleted entities into deletedCustomers, deletedSubscriptions & deletedVariants while completing 100% of remaining batch."
+          vector: "Edge 6 · Deleted External Entities in Stripe (deletedCustomers / deletedSubscriptions)",
+          naive: "FAIL: Throws unhandled Stripe 404 resource_missing mid-batch, aborting reconciliation for all remaining active subscribers.",
+          watchdog: "PASS: Gracefully isolates deleted entities into deletedCustomers, deletedSubscriptions & deletedVariants while completing 100% of remaining batch."
         },
         {
           key: "DISPUTE",
-          vector: "Edge 7a • Partial Refund + Dispute Clawback > Remaining Balance (8 events)",
-          naive: "❌ Subtracts " + planCredits.toLocaleString("en-US") + " from " + remainingBeforeDispute.toLocaleString("en-US") + " remaining -> balance hits -" + disputeDeficitCredits.toLocaleString("en-US") + " (or crashes PostgreSQL CHECK >= 0 with HTTP 500 retry storm).",
-          watchdog: "✅ Clamps deduction to 0 revocable credits (never negative), emits Dry-Run CLAWBACK_EXCEEDS_REMAINING_BALANCE_WARNING (" + disputeDeficitCents + "c deficit), and quarantines."
+          vector: "Edge 7a · Partial Refund + Dispute Clawback > Remaining Balance (8 events)",
+          naive: "FAIL: Subtracts " + planCredits.toLocaleString("en-US") + " from " + remainingBeforeDispute.toLocaleString("en-US") + " remaining -> balance hits -" + disputeDeficitCredits.toLocaleString("en-US") + " (or crashes PostgreSQL CHECK >= 0 with HTTP 500 retry storm).",
+          watchdog: "PASS: Clamps deduction to 0 revocable credits (never negative), emits Dry-Run CLAWBACK_EXCEEDS_REMAINING_BALANCE_WARNING (" + disputeDeficitCents + "c deficit), and quarantines."
         },
         {
           key: "ARITH",
-          vector: "Edge 7b • Boundary Arithmetic: 100% Discount & Fixed Discount > Price ($0.01 Floor)",
-          naive: "❌ 100% discount or $50.00 off $29.00 yields $0.00 or -$21.00 negative billing amount; FLOAT math introduces IEEE-754 drift and accepts zero-decimal JPY without validation.",
-          watchdog: "✅ Pure integer cents + ISO-4217 validation: clamps 100% and > price discounts to 1 cent ($0.01) with Dry-Run FLOOR_CLAMP_WARNING & EFFECTIVE_DISCOUNT_DRIFT_GT_5PP."
+          vector: "Edge 7b · Boundary Arithmetic: 100% Discount & Fixed Discount > Price ($0.01 Floor)",
+          naive: "FAIL: 100% discount or $50.00 off $29.00 yields $0.00 or -$21.00 negative billing amount; FLOAT math introduces IEEE-754 drift and accepts zero-decimal JPY without validation.",
+          watchdog: "PASS: Pure integer cents + ISO-4217 validation: clamps 100% and > price discounts to 1 cent ($0.01) with Dry-Run FLOOR_CLAMP_WARNING & EFFECTIVE_DISCOUNT_DRIFT_GT_5PP."
         },
         {
           key: "STREAM",
-          vector: "Edge 8 • 50x Parallel LLM Stream Hold (`streamText` / `onFinish` Token Race)",
-          naive: "❌ Post-stream `onFinish` deduction checks `if (user.credits > 0)` at t=0ms: all 50 parallel `/api/chat` requests pass before any stream finishes, burning 3,250 credits on a 1,000-credit wallet (+2,250 unbacked credits leaked).",
-          watchdog: "✅ Two-Phase Pre-Flight Reservation (`HOLD` -> `CAPTURE` / `RELEASE` + TTL Zombie Reaper): locks 100 max credits pre-flight, allows 10/50 streams, blocks 40/50 with HTTP 402 before touching OpenAI, commits 650 actual credits & refunds 350 unused hold (0 leaked)."
+          vector: "Edge 8 · 50x Parallel LLM Stream Hold (streamText / onFinish Token Race)",
+          naive: "FAIL: Post-stream onFinish deduction checks if (user.credits > 0) at t=0ms: all 50 parallel /api/chat requests pass before any stream finishes, burning 3,250 credits on a 1,000-credit wallet (+2,250 unbacked credits leaked).",
+          watchdog: "PASS: Two-Phase Pre-Flight Reservation (HOLD -> CAPTURE / RELEASE + TTL Zombie Reaper): locks 100 max credits pre-flight, allows 10/50 streams, blocks 40/50 with HTTP 402 before touching OpenAI, commits 650 actual credits & refunds 350 unused hold (0 leaked)."
         }
       ];
 
@@ -801,8 +1802,8 @@
       document.getElementById("chaos-comparison-tbody").innerHTML = filteredRows.map(r =>
         "<tr>" +
           "<td><strong>" + r.vector + "</strong></td>" +
-          "<td style='color:#fca5a5;'>" + r.naive + "</td>" +
-          "<td style='color:#6ee7b7;'>" + r.watchdog + "</td>" +
+          "<td class='cell-naive'>" + r.naive + "</td>" +
+          "<td class='cell-watchdog'>" + r.watchdog + "</td>" +
         "</tr>"
       ).join("");
 
@@ -879,7 +1880,7 @@
         : logSections.filter(s => s.key === currentChaosFilter);
 
       const logLines = [
-        "[UTC 2026-11-01T10:00:00.000Z] ⚡ Deterministic Stripe Webhook Chaos & 7-Edge-Case State Machine Log (Integer Cents Mode)",
+        "[UTC 2026-11-01T10:00:00.000Z] Deterministic Stripe Webhook Fault & 7-Edge-Case State Machine Log (Integer Cents Mode)",
         "--------------------------------------------------------------------------------------------------------------"
       ];
       for (const sec of activeLogSections) {
@@ -896,7 +1897,7 @@
         sqlPatch.push(
           "-- Diagnostic Result: " + quarantinedAccounts.length + " account(s) exceeded threshold (" + quarantinedAccounts.map(a => a.userId + "=" + a.leakCents + "c").join(", ") + ")",
           "--",
-          "-- [🔒 REDACTED IN FREE DIAGNOSTIC MODE]",
+          "-- [REDACTED IN FREE DIAGNOSTIC MODE]",
           "-- Enter your BWV2-... Pro/Lifetime License Key above (or purchase Pro $49/mo / Lifetime $149 below)",
           "-- to unlock executable circuit-breaker SQL statements & the atomic PL/pgSQL SELECT ... FOR UPDATE engine."
         );
@@ -924,7 +1925,7 @@
       if (!isProLicenseUnlocked) {
         const statusEl = document.getElementById("license-status-msg");
         if (statusEl) {
-          statusEl.innerHTML = 'Status: <strong style="color:#fbbf24;">🔒 Pro / Lifetime License Required to copy executable Quarantine SQL.</strong>';
+          statusEl.innerHTML = 'Status: <strong class="status-warn">Pro / Lifetime License Required to copy executable Quarantine SQL.</strong>';
         }
         return false;
       }
@@ -1061,17 +2062,17 @@
         if (/\b(req|request)\.json\s*\(\s*\)/.test(sql) || !/constructEvent|verifyStripeWebhookSignature/.test(sql)) {
           codeFindings.push({
             sev: "CRITICAL",
-            code: "AST 1 • MISSING_STRIPE_SIGNATURE_VERIFICATION",
+            code: "AST 1 · MISSING_STRIPE_SIGNATURE_VERIFICATION",
             table: "app/api/webhooks/stripe/route.ts",
             msg: "Webhook route parses req.json() or omits cryptographic Stripe-Signature HMAC verification, allowing forged invoice.paid payloads.",
-            diffRemove: "- const event = await req.json(); // ❌ Breaks raw HMAC body & skips Stripe-Signature check",
+            diffRemove: "- const event = await req.json(); // Breaks raw HMAC body & skips Stripe-Signature check",
             diffAdd: "+ const rawBody = await req.text(); verifyStripeWebhookSignature(rawBody, sig, secret);"
           });
         }
         if (/checkout\.session\.completed/.test(sql) && /invoice\.(paid|payment_succeeded)/.test(sql) && !/canonical_grant_key|canonicalGrantKey/.test(sql)) {
           codeFindings.push({
             sev: "HIGH",
-            code: "AST 2 • DUAL_WEBHOOK_GRANT_WITHOUT_CANONICAL_LOCK",
+            code: "AST 2 · DUAL_WEBHOOK_GRANT_WITHOUT_CANONICAL_LOCK",
             table: "checkout.session.completed + invoice.paid",
             msg: "Handles both checkout.session.completed and invoice.paid without canonical invoice_id deduplication (grants 2x credits on signup).",
             diffRemove: "- if (event.type === 'checkout.session.completed' || event.type === 'invoice.paid') { ... }",
@@ -1081,7 +2082,7 @@
         if (/\b(credits|credits_balance|balance)\s*:\s*[a-zA-Z0-9_$.]+\.(credits|credits_balance|balance)\s*[+-]/.test(sql)) {
           codeFindings.push({
             sev: "CRITICAL",
-            code: "AST 3 • NON_ATOMIC_READ_MODIFY_WRITE_CREDITS",
+            code: "AST 3 · NON_ATOMIC_READ_MODIFY_WRITE_CREDITS",
             table: "supabase.from('wallets').update(...)",
             msg: "Non-atomic JavaScript Read-Modify-Write credit mutation allows 20 concurrent requests to overwrite the same wallet balance.",
             diffRemove: "- await supabase.from('wallets').update({ credits: wallet.credits + 1000 });",
@@ -1091,7 +2092,7 @@
         if (/streamText\s*\(/.test(sql) && /onFinish/.test(sql) && !/reserveCreditsForStream|reserveStreamCredits|executeGuardedAiStream/.test(sql)) {
           codeFindings.push({
             sev: "CRITICAL",
-            code: "AST 4 • UNRESERVED_STREAMING_LLM_DEDUCTION",
+            code: "AST 4 · UNRESERVED_STREAMING_LLM_DEDUCTION",
             table: "streamText({ onFinish })",
             msg: "Deducts LLM credits inside onFinish without a Pre-Flight Hold Reservation. 50 parallel /api/chat requests will bypass the balance check before stream #1 finishes.",
             diffRemove: "- return streamText({ model, onFinish: async ({ usage }) => deductCredits(usage) });",
@@ -1101,7 +2102,7 @@
         if (/\b(streamText|generateText|generateObject|streamObject)\s*\(/.test(sql) && !/auth\.getUser|getServerSession|currentUser\s*\(|verifySession/.test(sql)) {
           codeFindings.push({
             sev: "CRITICAL",
-            code: "AST 5 • DENIAL_OF_WALLET_UNGUARDED_AI_ROUTE",
+            code: "AST 5 · DENIAL_OF_WALLET_UNGUARDED_AI_ROUTE",
             table: "POST /api/chat (LLM Endpoint)",
             msg: "Invokes paid LLM inference without caller session authentication or pre-flight rate/wallet hold, enabling anonymous Denial-of-Wallet API spend.",
             diffRemove: "- export async function POST(req: Request) { return streamText({ model: openai('gpt-4o') }); }",
@@ -1111,11 +2112,11 @@
         const container = document.getElementById("findings-container");
         container.innerHTML = codeFindings.map(f =>
           '<div class="finding">' +
-            '<div><span class="sev ' + (f.sev === "HIGH" ? "sev-high" : "") + '">' + f.sev + '</span><strong>' + f.code + '</strong> <span style="color:var(--muted);font-size:12px;">(' + f.table + ')</span></div>' +
-            '<div style="font-size:13px;margin-top:4px;color:#e2e8f0;">' + f.msg + '</div>' +
-            '<div style="margin-top:8px;background:#050811;border:1px solid #1e293b;border-radius:6px;padding:8px 10px;font-family:monospace;font-size:11px;line-height:1.5;">' +
-              '<div style="color:#fda4af;">' + f.diffRemove + '</div>' +
-              '<div style="color:#6ee7b7;">' + f.diffAdd + '</div>' +
+            '<div class="finding-head"><span class="sev ' + (f.sev === "HIGH" ? "sev-high" : "") + '">' + f.sev + '</span><strong>' + f.code + '</strong> <span class="finding-table">(' + f.table + ')</span></div>' +
+            '<div class="finding-msg">' + f.msg + '</div>' +
+            '<div class="code-diff">' +
+              '<div class="diff-del">' + f.diffRemove + '</div>' +
+              '<div class="diff-add">' + f.diffAdd + '</div>' +
             '</div>' +
           '</div>'
         ).join("");
@@ -1123,7 +2124,7 @@
           document.getElementById("patch-output").value = [
             "// Billing Watchdog AST Code Audit: " + codeFindings.length + " Next.js / Streaming LLM Vulnerability(s) Detected",
             "//",
-            "// [🔒 REDACTED IN FREE DIAGNOSTIC MODE]",
+            "// [REDACTED IN FREE DIAGNOSTIC MODE]",
             "// Enter your BWV2-... Pro/Lifetime License Key above to unlock the drop-in Two-Phase Streaming Hold & Atomic Webhook route.ts blueprint."
           ].join("\n");
         } else {
@@ -1155,7 +2156,7 @@
       if (!hasCheckNonNeg) {
         findings.push({
           sev: "CRITICAL",
-          code: "CHECK 1 • MISSING_NON_NEGATIVE_CHECK",
+          code: "CHECK 1 · MISSING_NON_NEGATIVE_CHECK",
           table: "public.wallets (credits_balance)",
           msg: "No CHECK (credits_balance >= 0) constraint found. Concurrent API requests can drive user credit balances negative."
         });
@@ -1176,7 +2177,7 @@
       if (!hasUniqueEvent) {
         findings.push({
           sev: "CRITICAL",
-          code: "CHECK 2 • MISSING_WEBHOOK_UNIQUE_CONSTRAINT",
+          code: "CHECK 2 · MISSING_WEBHOOK_UNIQUE_CONSTRAINT",
           table: "public.credit_transactions (stripe_event_id)",
           msg: "Column stripe_event_id lacks a UNIQUE constraint. Parallel Stripe webhook retries (invoice.paid) will grant duplicate credits."
         });
@@ -1200,7 +2201,7 @@
       if (rlsMissing.length > 0) {
         findings.push({
           sev: "HIGH",
-          code: "CHECK 3 • MISSING_RLS_OR_POLICY",
+          code: "CHECK 3 · MISSING_RLS_OR_POLICY",
           table: rlsMissing.join(", "),
           msg: "Row-Level Security (ENABLE ROW LEVEL SECURITY + CREATE POLICY) is missing on " + rlsMissing.length + " billing table(s), exposing records to PostgREST / anon key queries."
         });
@@ -1227,7 +2228,7 @@
       if (badPolicies.length > 0) {
         findings.push({
           sev: "CRITICAL",
-          code: "CHECK 4 • RLS_PERMISSIVE_NO_TENANT_FILTER",
+          code: "CHECK 4 · RLS_PERMISSIVE_NO_TENANT_FILTER",
           table: badPolicies.join(", "),
           msg: "Permissive RLS policy allows cross-tenant reads/writes (USING (true) or auth.role() = 'authenticated' without auth.uid() / auth.jwt() tenant isolation)."
         });
@@ -1244,7 +2245,7 @@
         if (lacksSearchPath || lacksAuthUid) {
           findings.push({
             sev: "CRITICAL",
-            code: "CHECK 5 • SECURITY_DEFINER_WITHOUT_AUTH_OR_SEARCH_PATH",
+            code: "CHECK 5 · SECURITY_DEFINER_WITHOUT_AUTH_OR_SEARCH_PATH",
             table: "SECURITY DEFINER RPC",
             msg: "SECURITY DEFINER function bypasses RLS without SET search_path = public, pg_temp or explicit auth.uid() caller binding (privilege escalation / IDOR risk)."
           });
@@ -1260,13 +2261,13 @@
 
       const container = document.getElementById("findings-container");
       if (findings.length === 0) {
-        container.innerHTML = '<div class="finding-ok">✅ 0 Schema or RLS Vulnerabilities Found — All 3 Group A Database Invariants Passed!</div>';
+        container.innerHTML = '<div class="finding-ok">0 Schema or RLS Vulnerabilities Found — All Group A Database Invariants Passed</div>';
         document.getElementById("patch-output").value = "-- All Group A schema invariants (CHECK >= 0, UNIQUE(stripe_event_id), and RLS policies) are present.\n-- No SQL remediation patch required.";
       } else {
         container.innerHTML = findings.map(f =>
           '<div class="finding">' +
-            '<div><span class="sev ' + (f.sev === "HIGH" ? "sev-high" : "") + '">' + f.sev + '</span><strong>' + f.code + '</strong> <span style="color:var(--muted);font-size:12px;">(' + f.table + ')</span></div>' +
-            '<div style="font-size:13px;margin-top:4px;color:#e2e8f0;">' + f.msg + '</div>' +
+            '<div class="finding-head"><span class="sev ' + (f.sev === "HIGH" ? "sev-high" : "") + '">' + f.sev + '</span><strong>' + f.code + '</strong> <span class="finding-table">(' + f.table + ')</span></div>' +
+            '<div class="finding-msg">' + f.msg + '</div>' +
           '</div>'
         ).join("");
         if (!isProLicenseUnlocked) {
@@ -1274,7 +2275,7 @@
             "-- Billing Watchdog Diagnostic Summary: " + findings.length + " Schema/RLS Vulnerability(s) Detected",
             "-- Affected Objects: " + findings.map(f => f.table).join(" | "),
             "--",
-            "-- [🔒 REDACTED IN FREE DIAGNOSTIC MODE]",
+            "-- [REDACTED IN FREE DIAGNOSTIC MODE]",
             "-- Enter your BWV2-... Pro/Lifetime License Key above (or purchase Pro $49/mo / Lifetime $149 below)",
             "-- to unlock the zero-downtime NOT VALID + VALIDATE CONSTRAINT + CREATE UNIQUE INDEX CONCURRENTLY remediation script."
           ].join("\n");
@@ -1288,7 +2289,7 @@
       if (!isProLicenseUnlocked) {
         const statusEl = document.getElementById("license-status-msg");
         if (statusEl) {
-          statusEl.innerHTML = 'Status: <strong style="color:#fbbf24;">🔒 Pro / Lifetime License Required to copy production SQL remediation patch.</strong>';
+          statusEl.innerHTML = 'Status: <strong class="status-warn">Pro / Lifetime License Required to copy production SQL remediation patch.</strong>';
         }
         return false;
       }
@@ -1302,7 +2303,7 @@
       if (!isProLicenseUnlocked) {
         const statusEl = document.getElementById("license-status-msg");
         if (statusEl) {
-          statusEl.innerHTML = 'Status: <strong style="color:#fbbf24;">🔒 Pro / Lifetime License Required to download remediation.sql.</strong>';
+          statusEl.innerHTML = 'Status: <strong class="status-warn">Pro / Lifetime License Required to download remediation.sql.</strong>';
         }
         return false;
       }
@@ -1329,17 +2330,17 @@
         "",
         "## Group B: Stripe <-> Postgres Entitlement & Credit Ledger Drift",
         "",
-        "1. [CRITICAL] CHECK 4 • ZOMBIE_SUBSCRIPTION (Entity: user_id=usr_zombie_1 / sub_zombie_01)",
+        "1. [CRITICAL] CHECK 4 · ZOMBIE_SUBSCRIPTION (Entity: user_id=usr_zombie_1 / sub_zombie_01)",
         "   - DB Status: 'active' | Live Stripe Status: 'canceled'",
         "   - Impact: User is consuming paid compute/credits for free after subscription cancellation.",
         "   - Circuit-Breaker Action: QUARANTINE (is_billing_quarantined: false -> true, exposure=2900 cents)",
         "",
-        "2. [CRITICAL] CHECK 5 • DUPLICATE_WEBHOOK_CREDIT_GRANT (Entity: stripe_event_id=evt_dup_99)",
+        "2. [CRITICAL] CHECK 5 · DUPLICATE_WEBHOOK_CREDIT_GRANT (Entity: stripe_event_id=evt_dup_99)",
         "   - Invoice: in_starter_29 ($29.00 = 2900 integer cents)",
         "   - Ledger Rows Found: 2 (tx_1: +1000 credits, tx_2: +1000 credits)",
         "   - Impact: Parallel Stripe webhook retry double-granted +1,000 extra credits.",
         "",
-        "3. [CRITICAL] CHECK 6 • CREDIT_CONSERVATION_VIOLATION (Entity: user_id=usr_replay_2)",
+        "3. [CRITICAL] CHECK 6 · CREDIT_CONSERVATION_VIOLATION (Entity: user_id=usr_replay_2)",
         "   - Formula: ExpectedMax (850) = FreeSignup (50) + PaidInvoices (1000) - Consumed (200)",
         "   - Actual Wallet Balance in DB: 1850 credits (+1,000 unbacked credit leakage detected).",
         "   - Circuit-Breaker Action: QUARANTINE (is_billing_quarantined: false -> true, exposure=3000 cents)"
@@ -1398,10 +2399,10 @@
       const statusEl = document.getElementById("license-status-msg");
       if (statusEl) {
         statusEl.innerHTML =
-          '<div style="margin-top:6px;padding:12px 14px;border-radius:8px;background:#0f172a;border:1px solid #38bdf8;color:#f8fafc;line-height:1.55;">' +
-            '<strong style="color:#7dd3fc;">Polar.sh Merchant-of-Record Checkout (' + escapeHtmlSafe(itemName) + ' — ' + amountCents + ' integer cents):</strong> ' +
+          '<div class="polar-notice">' +
+            '<strong class="polar-notice-title">Polar.sh Merchant-of-Record Checkout (' + escapeHtmlSafe(itemName) + ' — ' + amountCents + ' integer cents):</strong> ' +
             'Live self-serve <code>buy.polar.sh</code> link is not yet published in this static build (fail-closed — zero unverified external payment redirects). ' +
-            '<a href="' + mailtoHref + '" style="color:#6ee7b7;font-weight:700;text-decoration:underline;">Request instant Polar.sh MoR checkout link / VAT invoice via mariostosic@prime-tech.rs →</a>' +
+            '<a class="polar-notice-link" href="' + mailtoHref + '">Request instant Polar.sh MoR checkout link / VAT invoice via mariostosic@prime-tech.rs →</a>' +
           '</div>';
         if (typeof statusEl.scrollIntoView === "function") {
           statusEl.scrollIntoView({ behavior: "smooth", block: "center" });
@@ -1434,9 +2435,9 @@
           const statusEl = document.getElementById("license-status-msg");
           if (statusEl) {
             if (provider === "polar") {
-              statusEl.innerHTML = 'Status: <strong style="color:#6ee7b7;">✅ Polar.sh Checkout Completed! Check your inbox for your instant <code>BWV2E-...</code> Ed25519 License Key, <code>billing-watchdog-pro-v2.zip</code> download, and GitHub private repo invite.</strong>';
+              statusEl.innerHTML = 'Status: <strong class="status-ok">Polar.sh Checkout Completed. Check your inbox for your instant <code>BWV2E-...</code> Ed25519 License Key, <code>billing-watchdog-pro-v2.zip</code> download, and GitHub private repo invite.</strong>';
             } else {
-              statusEl.innerHTML = 'Status: <strong style="color:#6ee7b7;">✅ Checkout Completed! Send your receipt email to <a href="mailto:mariostosic@prime-tech.rs?subject=Billing%20Watchdog%20v2%20License%20Key%20Delivery" style="color:#38bdf8;">mariostosic@prime-tech.rs</a> to receive your BWV2E-... License Key &amp; Pro ZIP immediately.</strong>';
+              statusEl.innerHTML = 'Status: <strong class="status-ok">Checkout Completed. Send your receipt email to <a href="mailto:mariostosic@prime-tech.rs?subject=Billing%20Watchdog%20v2%20License%20Key%20Delivery">mariostosic@prime-tech.rs</a> to receive your BWV2E-... License Key &amp; Pro ZIP immediately.</strong>';
             }
           }
         }
