@@ -40,7 +40,7 @@ jobs:
             npm run verify-ci:demo
           else
             npm --prefix portal ci --no-audit --no-fund
-            npx --prefix portal tsc --noEmit
+            npm --prefix portal run typecheck
             node -e '
               const fs = require("node:fs");
               const assert = require("node:assert/strict");
