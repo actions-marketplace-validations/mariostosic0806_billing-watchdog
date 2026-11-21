@@ -3105,9 +3105,9 @@ function toggleGroupBDemo() {
 // Polar.sh Merchant-of-Record Instant Delivery Links (EU VAT / US Tax + GitHub Repo Invite + BWV2E Key)
 // Keyed strictly by INTEGER cents (4900 = PRO_MONTHLY, 14900 = LIFETIME_TEAM, 29900 = AGENCY_TEAM; zero FLOAT/REAL).
 const POLAR_CHECKOUT_URLS = {
-  4900: "",
-  14900: "",
-  29900: ""
+  4900: "https://buy.polar.sh/polar_cl_JhTO5p5RGdDJNEBzIj6DzNck8gJ8DsuJQceUo04sPXQ",
+  14900: "https://buy.polar.sh/polar_cl_sHbEpKv3KKusy3yyPKfYABJZ5pZgwBYQ2zO5c343unp",
+  29900: "https://buy.polar.sh/polar_cl_NXtryNUpC90fHPJTRBZutEjAwwX2DZfe9bj5c31lz5t"
 };
 if (typeof window !== "undefined") {
   window.POLAR_CHECKOUT_URLS = POLAR_CHECKOUT_URLS;
