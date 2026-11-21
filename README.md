@@ -1,9 +1,11 @@
 # Billing Watchdog v2.4 & ProofTwin CI Gate (`Stripe ↔ Postgres/Supabase`)
 
 [![CI](https://github.com/mariostosic0806/billing-watchdog/actions/workflows/ci.yml/badge.svg)](https://github.com/mariostosic0806/billing-watchdog/actions/workflows/ci.yml)
+[![GitHub Marketplace](https://img.shields.io/badge/GitHub%20Marketplace-v2.4.1-1F7A4D?logo=githubactions&logoColor=white)](https://github.com/marketplace/actions/stripe-supabase-billing-integrity-watchdog)
 
 Deterministic Stripe ↔ PostgreSQL/Supabase billing integrity reconciler, zero-credential `ProofTwin` pull-request security gate (SQL, Drizzle ORM, Prisma, Next.js, Python FastAPI, Autumn, Stripe Billing Meters, and `.mcp.json` lockfiles), and self-hosted AI credit circuit-breaker.
 
+- **GitHub Marketplace Action (`v2.4.1`, MIT):** [github.com/marketplace/actions/stripe-supabase-billing-integrity-watchdog](https://github.com/marketplace/actions/stripe-supabase-billing-integrity-watchdog)
 - **Interactive Browser Simulator & Offline `.sql` / ORM / RLS Linter:** [https://mariostosic0806.github.io/billing-watchdog/](https://mariostosic0806.github.io/billing-watchdog/)
 - **Standalone MIT Agent Skill (`Claude Code`, `ECC`, `Cursor`, `Codex`, `Antigravity`):** [`skills/stripe-supabase-billing-guard/SKILL.md`](skills/stripe-supabase-billing-guard/SKILL.md)
 
@@ -67,7 +69,7 @@ GRANT USAGE ON SCHEMA public TO billing_watchdog_ro;
 GRANT SELECT ON public.users, public.subscriptions, public.wallets, public.credit_transactions TO billing_watchdog_ro;
 ```
 
-Every live Pro run opens a single `BEGIN ISOLATION LEVEL REPEATABLE READ, READ ONLY;` transaction, verifies `SHOW transaction_read_only;` equals `on`, sets `SET LOCAL row_security = off;`, snapshots mapped columns before querying Stripe, and dispatches alerts only to your configured `SLACK_WEBHOOK_URL` or `DISCORD_WEBHOOK_URL` (see `examples/watchdog_atomic_webhook.sql` and `scripts/macbook_auto_setup.sh`).
+Every live Pro run opens a single `BEGIN ISOLATION LEVEL REPEATABLE READ, READ ONLY;` transaction, verifies `SHOW transaction_read_only;` equals `on`, sets `SET LOCAL row_security = off;`, snapshots mapped columns before querying Stripe, and dispatches alerts only to your configured `SLACK_WEBHOOK_URL` or `DISCORD_WEBHOOK_URL` (the full PL/pgSQL webhook & stream-hold RPC migration `examples/watchdog_atomic_webhook.sql` ships in Self-Hosted Pro v2; see [`scripts/macbook_auto_setup.sh`](scripts/macbook_auto_setup.sh) and [`examples/polar_fulfillment_ledger.sql`](examples/polar_fulfillment_ledger.sql) in this repo).
 
 ---
 

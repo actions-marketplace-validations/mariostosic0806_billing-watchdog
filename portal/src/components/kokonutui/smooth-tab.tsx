@@ -97,7 +97,7 @@ export function SmoothTab({
             tabIndex={active ? 0 : -1}
             onClick={() => onChange(item.id)}
             className={cn(
-              "relative z-10 inline-flex items-center gap-1.5 whitespace-nowrap px-3 h-11 sm:h-12 text-[12.5px] font-medium transition-colors cursor-pointer shrink-0",
+              "relative z-10 inline-flex items-center gap-1.5 whitespace-nowrap px-2.5 h-11 sm:h-12 text-[12.5px] font-medium transition-colors cursor-pointer shrink-0",
               active ? "text-[#141413] font-semibold" : "text-[#5C5850] hover:text-[#141413]"
             )}
           >

@@ -142,11 +142,11 @@ export default function App() {
                 <rect x="2" y="2" width="20" height="20" rx="2" stroke="#141413" strokeWidth="1.6" />
                 <path d="M5.5 12h4l2-4.5 2.5 9 2-4.5h2.5" stroke="#0D7A5F" strokeWidth="1.6" />
               </svg>
-              <span className="text-[13.5px] font-semibold tracking-tight text-[#141413] truncate">
+              <span className="text-[13.5px] font-semibold tracking-tight text-[#141413] whitespace-nowrap shrink-0">
                 Billing Watchdog
               </span>
-              <span className="rounded-[2px] border border-[#DDD8CE] bg-[#F4F2EC] px-1.5 py-0.5 font-mono text-[10.5px] text-[#5C5850] shrink-0">
-                v2.4.0
+              <span className="hidden xl:inline-flex rounded-[2px] border border-[#DDD8CE] bg-[#F4F2EC] px-1.5 py-0.5 font-mono text-[10.5px] text-[#5C5850] shrink-0">
+                v2.4.1
               </span>
             </div>
 
