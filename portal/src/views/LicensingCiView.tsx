@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Check, Copy, KeyRound, ShieldCheck } from "lucide-react";
+import { Check, Copy, FileText, KeyRound, ShieldCheck } from "lucide-react";
 import { getKernel } from "@/lib/kernel";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -44,7 +44,18 @@ export function LicensingCiView({ onOpenAuditor }: LicensingCiViewProps) {
               <code className="font-mono text-[12px]">STRIPE_RESTRICTED_KEY</code> stay inside your own runner.
             </p>
           </div>
-          <Badge variant="ok">MIT GitHub Action @v2.4.2</Badge>
+          <div className="flex flex-wrap items-center gap-2">
+            <a
+              href="billing-watchdog-cto-brief.pdf"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 rounded-[3px] border border-[#C5BEB1] bg-[#FCFBF8] px-2.5 py-1 text-[12px] font-medium text-[#141413] hover:bg-[#EAE6DD] transition-colors"
+            >
+              <FileText className="h-3.5 w-3.5 text-[#095E49] shrink-0" strokeWidth={1.75} />
+              <span>1-Page CTO Brief (PDF)</span>
+            </a>
+            <Badge variant="ok">MIT GitHub Action @v2.4.2</Badge>
+          </div>
         </div>
 
         <div className="rounded-[3px] border border-[#2C2F2A] bg-[#121311] text-[#EAE8E1] overflow-hidden">
