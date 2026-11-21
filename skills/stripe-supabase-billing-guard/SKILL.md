@@ -208,7 +208,7 @@ Before editing or applying any migration, webhook route, AI route, or MCP config
 To enforce these checks read-only on Pull Requests (zero database credentials or Stripe keys required, emitting GitHub Code Scanning SARIF 2.1.0 and a prompt-injection-safe remediation checklist):
 
 ```yaml
-- uses: mariostosic0806/billing-watchdog@v2.4.1
+- uses: mariostosic0806/billing-watchdog@v2.4.2
   with:
     command: verify-ci
     sql-path: supabase/migrations

@@ -10,7 +10,7 @@ interface LicensingCiViewProps {
 
 const GITHUB_ACTION_YAML = [
   "# .github/workflows/billing-watchdog.yml",
-  "- uses: mariostosic0806/billing-watchdog@v2.4.1",
+  "- uses: mariostosic0806/billing-watchdog@v2.4.2",
   "  with:",
   "    command: verify-ci",
   "    sql-path: supabase/migrations/001_billing.sql",
@@ -44,7 +44,7 @@ export function LicensingCiView({ onOpenAuditor }: LicensingCiViewProps) {
               <code className="font-mono text-[12px]">STRIPE_RESTRICTED_KEY</code> stay inside your own runner.
             </p>
           </div>
-          <Badge variant="ok">MIT GitHub Action @v2.4.1</Badge>
+          <Badge variant="ok">MIT GitHub Action @v2.4.2</Badge>
         </div>
 
         <div className="rounded-[3px] border border-[#2C2F2A] bg-[#121311] text-[#EAE8E1] overflow-hidden">
@@ -89,7 +89,7 @@ export function LicensingCiView({ onOpenAuditor }: LicensingCiViewProps) {
             </p>
 
             <ul className="mt-4 space-y-2 border-t border-[#DDD8CE] pt-4 text-[12.5px] text-[#47453F]">
-              <li>GitHub Action <code className="font-mono text-[11.5px]">@v2.4.1</code> PR annotations</li>
+              <li>GitHub Action <code className="font-mono text-[11.5px]">@v2.4.2</code> PR annotations</li>
               <li>OASIS SARIF 2.1.0 security tab export</li>
               <li>Prompt-injection-safe <code className="font-mono text-[11.5px]">--agent-fix-out</code></li>
               <li>Drizzle, Prisma, SQL &amp; Next.js route checks</li>

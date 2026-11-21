@@ -146,7 +146,7 @@ export default function App() {
                 Billing Watchdog
               </span>
               <span className="hidden xl:inline-flex rounded-[2px] border border-[#DDD8CE] bg-[#F4F2EC] px-1.5 py-0.5 font-mono text-[10.5px] text-[#5C5850] shrink-0">
-                v2.4.1
+                v2.4.2
               </span>
             </div>
 

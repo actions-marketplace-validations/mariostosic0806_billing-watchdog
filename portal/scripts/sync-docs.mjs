@@ -73,12 +73,18 @@ const requiredPatterns = [
   /terms\.html/,
   /privacy\.html/,
   /refund-policy\.html/,
-  /60a3c51229e4d4381251d1e60dc2b1d5d281f976217f3876e3e956f47af9cdea/,
-  /f757e3d38a3103843b57af2c7d5b9eb6607593d075928407f99a065caf3e7599/,
 ];
 for (const re of requiredPatterns) {
   assert.match(builtHtml, re, `Built docs/index.html missing required pattern: ${re}`);
 }
+
+// Audit Lic-F1: only signed BWV2E Ed25519 keys may unlock — no legacy digest bypass and no
+// caller-supplied trust anchor on the global verifier.
+assert.doesNotMatch(
+  builtHtml,
+  /VALID_LICENSE_SHA256_DIGESTS|overrideSpkiB64|60a3c51229e4d4381251d1e60dc2b1d5d281f976217f3876e3e956f47af9cdea|f757e3d38a3103843b57af2c7d5b9eb6607593d075928407f99a065caf3e7599/,
+  "Legacy license unlock bypass must not ship in docs/index.html"
+);
 
 // Verify bundled .woff2 self-hosted font files exist in docs/assets/
 const woff2Files = collectFiles(targetAssetsDir, [".woff2"]);
@@ -108,8 +114,13 @@ for (const file of builtFilesToAudit) {
   assert.doesNotMatch(txt, /PRIVATE KEY|WATCHDOG_ED25519_PRIVATE_KEY/, `Private key marker in ${file}`);
   assert.doesNotMatch(
     txt,
-    /BWV2-(?:LIFETIME_TEAM|PRO_MONTHLY)-[0-9]{4}-[0-9]{2}-[0-9]{2}T/,
+    /BWV2-(?:LIFETIME_TEAM|PRO_MONTHLY|AGENCY_TEAM|AGENCY_CLIENT_HANDOVER)-(?:[0-9]{4}-[0-9]{2}-[0-9]{2}T|[0-9]{10,12}-[0-9A-F]{24})/,
     `Plaintext legacy license key in ${file}`
+  );
+  assert.doesNotMatch(
+    txt,
+    /BWV2E-(?:LIFETIME_TEAM|PRO_MONTHLY|AGENCY_TEAM|AGENCY_CLIENT_HANDOVER)-(?:WATCHDOG_V2|BUNDLE_ALL)-[0-9]{10,12}-/,
+    `Plaintext BWV2E Ed25519 license key in ${file}`
   );
   assert.doesNotMatch(txt, /CONCIERGE|1-on-1 Engineer/i, `Banned Polar AUP term in ${file}`);
   assert.doesNotMatch(txt, /© 2026 Prime Tech/i, `Banned company branding in ${file}`);

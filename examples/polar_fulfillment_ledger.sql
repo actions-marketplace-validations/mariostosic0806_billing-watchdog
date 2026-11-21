@@ -14,7 +14,7 @@ CREATE TABLE IF NOT EXISTS public.polar_entitlements (
   entitlement_key text PRIMARY KEY,
   customer_email text NOT NULL,
   customer_hash12 text NOT NULL,
-  tier text NOT NULL CHECK (tier IN ('PRO_MONTHLY', 'LIFETIME_TEAM')),
+  tier text NOT NULL CHECK (tier IN ('PRO_MONTHLY', 'LIFETIME_TEAM', 'AGENCY_TEAM')),
   product_scope text NOT NULL CHECK (product_scope IN ('WATCHDOG_V2', 'BUNDLE_ALL')),
   status text NOT NULL CHECK (status IN ('NONE', 'ACTIVE', 'CANCELED_GRACE', 'REVOKED')),
   amount_minor_units integer NOT NULL CHECK (amount_minor_units >= 0),

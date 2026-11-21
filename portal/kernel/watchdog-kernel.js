@@ -1,4 +1,4 @@
-// Billing Watchdog v2.4.0 — Canonical Deterministic Headless Kernel
+// Billing Watchdog v2.4.2 — Canonical Deterministic Headless Kernel
 // Runs identically in Node VM verification sandboxes and as React 19 useSyncExternalStore backing store.
 // Zero external dependencies. Zero hardcoded secrets or plaintext license keys.
 
@@ -6,11 +6,8 @@ let currentChaosFilter = "ALL";
 let isProLicenseUnlocked = false;
 const __kernelListeners = new Set();
 
-// Zero-Plaintext License Verification (Only 64-char SHA-256 digests stored; keys are never in HTML)
-const VALID_LICENSE_SHA256_DIGESTS = [
-  "60a3c51229e4d4381251d1e60dc2b1d5d281f976217f3876e3e956f47af9cdea",
-  "f757e3d38a3103843b57af2c7d5b9eb6607593d075928407f99a065caf3e7599"
-];
+// License unlock: ONLY signed BWV2E-... keys, verified offline against the embedded Ed25519 public key.
+// (The legacy SHA-256 digest bypass was removed: its preimages were universal, non-expiring master keys.)
 
 function isReactMounted() {
   return typeof window !== "undefined" && window.__WATCHDOG_REACT_MOUNTED__ === true;
@@ -47,76 +44,6 @@ function sanitizeClampedSubsInt(val, fallbackVal) {
     return fallbackVal;
   }
   return Math.min(100000, Math.max(10, val));
-}
-
-function sha256HexSync(ascii) {
-  function rightRotate(value, amount) {
-    return (value >>> amount) | (value << (32 - amount));
-  }
-  const mathPow = Math.pow;
-  const maxWord = mathPow(2, 32);
-  let result = "";
-  const words = [];
-  const asciiBitLength = ascii.length * 8;
-  let hash = [
-    0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a,
-    0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19
-  ];
-  const k = [
-    0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
-    0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
-    0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
-    0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7, 0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967,
-    0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85,
-    0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
-    0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
-    0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2
-  ];
-  ascii += "\x80";
-  while ((ascii.length % 64) - 56) ascii += "\x00";
-  for (let i = 0; i < ascii.length; i++) {
-    const j = ascii.charCodeAt(i);
-    words[i >> 2] |= j << ((3 - (i % 4)) * 8);
-  }
-  words[words.length] = (asciiBitLength / maxWord) | 0;
-  words[words.length] = asciiBitLength;
-  for (let j = 0; j < words.length; ) {
-    const w = words.slice(j, (j += 16));
-    const oldHash = hash.slice(0);
-    for (let i = 0; i < 64; i++) {
-      const w15 = w[i - 15], w2 = w[i - 2];
-      const a = hash[0], e = hash[4];
-      const temp1 =
-        hash[7] +
-        (rightRotate(e, 6) ^ rightRotate(e, 11) ^ rightRotate(e, 25)) +
-        ((e & hash[5]) ^ (~e & hash[6])) +
-        k[i] +
-        (w[i] =
-          i < 16
-            ? w[i]
-            : (w[i - 16] +
-                (rightRotate(w15, 7) ^ rightRotate(w15, 18) ^ (w15 >>> 3)) +
-                w[i - 7] +
-                (rightRotate(w2, 17) ^ rightRotate(w2, 19) ^ (w2 >>> 10))) |
-              0);
-      const temp2 =
-        (rightRotate(a, 2) ^ rightRotate(a, 13) ^ rightRotate(a, 22)) +
-        ((a & hash[1]) ^ (a & hash[2]) ^ (hash[1] & hash[2]));
-      hash = [(temp1 + temp2) | 0].concat(hash);
-      hash[4] = (hash[4] + temp1) | 0;
-      hash.pop();
-    }
-    for (let i = 0; i < 8; i++) {
-      hash[i] = (hash[i] + oldHash[i]) | 0;
-    }
-  }
-  for (let i = 0; i < 8; i++) {
-    for (let j = 3; j + 1; j--) {
-      const b = (hash[i] >> (j * 8)) & 255;
-      result += (b < 16 ? 0 : "") + b.toString(16);
-    }
-  }
-  return result;
 }
 
 // Public-only RFC 8410 Ed25519 SPKI key (44 bytes DER in Base64 — zero private signing material in HTML)
@@ -587,7 +514,7 @@ function applyLicenseRelockState(statusKind, msg, statusCssClass, draftOverride)
   }
 }
 
-async function verifyEd25519LicenseInBrowser(rawKey, overrideSpkiB64) {
+async function verifyEd25519LicenseInBrowser(rawKey) {
   const trimmed = (rawKey || "").trim();
   const match = /^BWV2E-(PRO_MONTHLY|LIFETIME_TEAM|AGENCY_TEAM|AGENCY_CLIENT_HANDOVER)-(WATCHDOG_V2|BUNDLE_ALL)-(\d{10,12})-([0-9A-F]{12})-([A-Za-z0-9_-]{86})$/.exec(trimmed);
   if (!match) {
@@ -623,7 +550,7 @@ async function verifyEd25519LicenseInBrowser(rawKey, overrideSpkiB64) {
   }
 
   try {
-    const spkiBytes = decodeBase64Bytes(overrideSpkiB64 || PRIME_TECH_ED25519_PUBLIC_KEY_SPKI_B64, false);
+    const spkiBytes = decodeBase64Bytes(PRIME_TECH_ED25519_PUBLIC_KEY_SPKI_B64, false);
     const sigBytes = decodeBase64Bytes(sigB64Url, true);
     if (sigBytes.length === 64) {
       const canonical = "BWV2E:" + tier + ":" + scope + ":" + expUnix + ":" + custHash12;
@@ -681,22 +608,13 @@ function unlockProPortal(explicitKey) {
     return false;
   }
 
-  const digest = sha256HexSync(rawKey);
-  if (VALID_LICENSE_SHA256_DIGESTS.indexOf(digest) !== -1) {
-    commitState((next) => {
-      next.licenseKeyDraft = rawKey;
-    });
-    applyProUnlockedUiState("PRO / LIFETIME LICENSE VERIFIED (Full SQL Remediation Export Unlocked)");
-    return true;
-  } else {
-    applyLicenseRelockState(
-      "error",
-      "Invalid License Key. Purchase Pro ($49/mo), Lifetime ($149), or Agency ($299) below to receive your BWV2E-... key.",
-      "status-danger",
-      rawKey
-    );
-    return false;
-  }
+  applyLicenseRelockState(
+    "error",
+    "Invalid License Key: only signed BWV2E-... Ed25519 keys unlock Pro exports. Purchase Pro ($49/mo), Lifetime ($149), or Agency ($299) below to receive your BWV2E-... key.",
+    "status-danger",
+    rawKey
+  );
+  return false;
 }
 
 function runChaosSimulation(filterMode, paramsOverride) {
@@ -1318,7 +1236,10 @@ function hasTenantHelperCall(expr) {
 
 function isPermissiveOrUncorrelatedPolicyExpr(rawExpr, tableShortName) {
   let e = rawExpr.trim();
-  while (e.startsWith("(") && e.endsWith(")")) {
+  // Each layer rescans the whole expression, so cap the layers (real policies have a handful):
+  // 50k wrapping parentheses would otherwise be O(n^2) (~6 s per 100 KB in the browser).
+  let wrappingLayersStripped = 0;
+  while (e.startsWith("(") && e.endsWith(")") && wrappingLayersStripped++ < 64) {
     const inner = extractBalancedParen(e, 0);
     if (inner && inner.endIdx === e.length) {
       e = inner.expr.trim();
@@ -1447,6 +1368,7 @@ function runPrismaSchemaAudit(rawText, tStart, presetOverride) {
   const cleanPrisma = stripped.cleaned;
   const findings = [];
   const patchStatements = [];
+  const concurrentStatements = [];
 
   const modelRe = /\bmodel\s+([A-Za-z_][A-Za-z0-9_]*)\s*\{/g;
   let mm;
@@ -1529,8 +1451,8 @@ function runPrismaSchemaAudit(rawText, tStart, presetOverride) {
           diffRemove: "-   " + evField + " String",
           diffAdd: "+   " + evField + " String @unique"
         });
-        patchStatements.push(
-          '-- Run ALONE outside transaction blocks in Supabase SQL Editor:',
+        concurrentStatements.push(
+          '-- Run ALONE outside transaction blocks in Supabase SQL Editor (one statement per query):',
           'CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS "' +
             modelName +
             "_" +
@@ -1557,9 +1479,22 @@ function runPrismaSchemaAudit(rawText, tStart, presetOverride) {
             "// Enter your BWV2E-... License Key above to unlock quoted PostgreSQL + Prisma $transaction migration templates."
           ].join("\n")
         : [
-            "-- Billing Watchdog v2.4.0 — Prisma Quoted Identifier PostgreSQL Remediation",
-            ...patchStatements
+            "-- Billing Watchdog v2.4.2 — Prisma Quoted Identifier PostgreSQL Remediation",
+            ...(patchStatements.length > 0
+              ? ["-- === STEP 1: TRANSACTIONAL DDL (Safe to run directly in Supabase SQL Editor) ===", ...patchStatements]
+              : []),
+            ...(concurrentStatements.length > 0
+              ? ["", "-- === STEP 2: NON-TRANSACTIONAL INDEX (Run ALONE in a separate Supabase SQL Editor query — avoids PostgreSQL ERROR: 25001) ===", ...concurrentStatements]
+              : [])
           ].join("\n");
+  const prismaStep1Text =
+    isProLicenseUnlocked && findings.length > 0 && patchStatements.length > 0
+      ? ["-- === STEP 1: TRANSACTIONAL DDL (Safe to run directly in Supabase SQL Editor) ===", ...patchStatements].join("\n")
+      : "";
+  const prismaStep2Text =
+    isProLicenseUnlocked && findings.length > 0 && concurrentStatements.length > 0
+      ? ["-- === STEP 2: NON-TRANSACTIONAL INDEX (Run ALONE in a separate Supabase SQL Editor query — avoids PostgreSQL ERROR: 25001) ===", ...concurrentStatements].join("\n")
+      : "";
 
   renderFindingsDom(findings, "0 Prisma Schema Vulnerabilities Found", patchOutputText);
   const tEnd = typeof performance !== "undefined" && typeof performance.now === "function" ? performance.now() : 0;
@@ -1572,8 +1507,8 @@ function runPrismaSchemaAudit(rawText, tStart, presetOverride) {
       sourceKind: "prisma",
       findings,
       patchOutput: patchOutputText,
-      patchStep1Transactional: isProLicenseUnlocked ? patchOutputText : "",
-      patchStep2Concurrent: "",
+      patchStep1Transactional: prismaStep1Text,
+      patchStep2Concurrent: prismaStep2Text,
       lintMs
     };
   });
@@ -1817,9 +1752,9 @@ function runSqlLinter(codeOverride, presetOverride) {
       }
     }
 
-    // AST 3: Catch camelCase creditsBalance, optional-chained (wallet?.x ?? 0), strict-TS wallet!.credits, +=/-=, and undeduped invoice.paid increment
+    // AST 3 (`(?<![\w$])` instead of `\b`: linear on `a$a$a$...` runs): Catch camelCase creditsBalance, optional-chained (wallet?.x ?? 0), strict-TS wallet!.credits, +=/-=, and undeduped invoice.paid increment
     const rmwDirectRe =
-      /\b(credits|credits_balance|creditsBalance|balance|token_quota|tokenQuota)\s*:\s*(?:\(\s*)?[a-zA-Z0-9_$.]+(?:\?\.|!\.|\.)(credits|credits_balance|creditsBalance|balance|token_quota|tokenQuota)(?:\s*\?\?\s*\d+\s*\))?\s*[+-]|\b[a-zA-Z0-9_$]+(?:\?\.|!\.|\.)(credits|credits_balance|creditsBalance|balance|token_quota|tokenQuota)\s*[+-]=/;
+      /\b(credits|credits_balance|creditsBalance|balance|token_quota|tokenQuota)\s*:\s*(?:\(\s*)?[a-zA-Z0-9_$.]+(?:\?\.|!\.|\.)(credits|credits_balance|creditsBalance|balance|token_quota|tokenQuota)(?:\s*\?\?\s*\d+\s*\))?\s*[+-]|(?<![\w$])[\w$]+(?:\?\.|!\.|\.)(credits|credits_balance|creditsBalance|balance|token_quota|tokenQuota)\s*[+-]=/;
     const hasWebhookEventDedup =
       /\b(?:event\.id|stripe_event_id|stripeEventId|processed_stripe_events|creditTransaction\.create|creditTransactions|apply_stripe_webhook_atomic|handleRawWebhookHttp)\b/.test(
         cleanCode
@@ -1974,7 +1909,7 @@ function runSqlLinter(codeOverride, presetOverride) {
               "// Enter your BWV2E-... Pro/Lifetime/Agency License Key above to unlock the drop-in Postgres-backed Two-Phase Stream Hold & Atomic Webhook route.ts blueprint."
             ].join("\n")
           : [
-              "// Billing Watchdog v2.4.0 — Hardened Next.js Webhook + Postgres Two-Phase Streaming Hold Blueprint",
+              "// Billing Watchdog v2.4.2 — Hardened Next.js Webhook + Postgres Two-Phase Streaming Hold Blueprint",
               "export async function POST(req: Request) {",
               "  const rawBody = await req.text();",
               "  const sig = req.headers.get('stripe-signature');",
@@ -2051,6 +1986,7 @@ function runSqlLinter(codeOverride, presetOverride) {
   const findings = [];
   const step1Lines = [];
   const step2Lines = [];
+  const step3Lines = [];
 
   // CHECK 1: Non-negative balance/credits/quota constraint ONLY on tables that actually define a balance/credit/quota state column!
   const balanceColCandidateRe =
@@ -2198,7 +2134,10 @@ function runSqlLinter(codeOverride, presetOverride) {
               " (" +
               sqlEvCol +
               ");",
-            "-- Optional: promote concurrent unique index to a named table constraint (instant metadata lock):",
+            ""
+          );
+          step3Lines.push(
+            "-- Optional (after Step 2 succeeded): promote the concurrent unique index to a named table constraint (instant metadata lock):",
             "ALTER TABLE " + tbl.qualifiedSql + " ADD CONSTRAINT " + uqName + " UNIQUE USING INDEX " + idxName + ";",
             ""
           );
@@ -2502,13 +2441,13 @@ function runSqlLinter(codeOverride, presetOverride) {
           fnQ.qualifiedSql +
           " SET search_path = public, pg_temp;\n+ REVOKE ALL ON FUNCTION " +
           fnQ.qualifiedSql +
-          " FROM PUBLIC, anon;"
+          " FROM PUBLIC, anon, authenticated;"
       });
       if (isProLicenseUnlocked) {
         step1Lines.push(
           "-- Lock down SECURITY DEFINER RPC " + fnQ.qualifiedSql + "():",
           "ALTER FUNCTION " + fnQ.qualifiedSql + " SET search_path = public, pg_temp;",
-          "REVOKE ALL ON FUNCTION " + fnQ.qualifiedSql + " FROM PUBLIC, anon;",
+          "REVOKE ALL ON FUNCTION " + fnQ.qualifiedSql + " FROM PUBLIC, anon, authenticated;",
           ""
         );
       }
@@ -2552,7 +2491,11 @@ function runSqlLinter(codeOverride, presetOverride) {
         .join("\n")
         .trim();
     }
-    patchOutputText = [step1Text, step2Text].filter(Boolean).join("\n\n");
+    const step3Text =
+      step3Lines.length > 0
+        ? ["-- === STEP 3 (OPTIONAL): run only after every Step 2 index finished building ===", ...step3Lines].join("\n").trim()
+        : "";
+    patchOutputText = [step1Text, step2Text, step3Text].filter(Boolean).join("\n\n");
   }
 
   renderFindingsDom(
@@ -2694,6 +2637,11 @@ function parseSubscriptionDatasetInMemory(rawInput) {
   if (!trimmed) return [];
   if (trimmed.startsWith("[") || trimmed.startsWith("{")) {
     const parsed = JSON.parse(trimmed);
+    if (parsed && parsed.has_more === true) {
+      throw new Error(
+        "Truncated Stripe list export (has_more: true): export every page before diffing — a partial list would mark paying subscriptions as MISSING_IN_STRIPE."
+      );
+    }
     if (Array.isArray(parsed)) return parsed;
     if (parsed && Array.isArray(parsed.data)) return parsed.data;
     if (parsed && Array.isArray(parsed.subscriptions)) return parsed.subscriptions;
@@ -2938,7 +2886,7 @@ function runSubscriptionDiffReconciler(stripeRawOverride, dbRawOverride) {
               "-- Enter your BWV2E-... Pro/Lifetime/Agency License Key above to unlock the transactional zombie subscription cut-off SQL script."
             ].join("\n")
           : [
-              "-- Billing Watchdog v2.4.0 — Emergency Zombie Subscription Cut-Off (0-Egress Client-Side Diff)",
+              "-- Billing Watchdog v2.4.2 — Emergency Zombie Subscription Cut-Off (0-Egress Client-Side Diff)",
               "-- Total Monthly Bleed Stopped: " +
                 formatUsdFromCents(totalMonthlyBleedCents) +
                 "/mo (" +

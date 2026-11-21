@@ -1,11 +1,11 @@
 # Billing Watchdog v2.4 & ProofTwin CI Gate (`Stripe ↔ Postgres/Supabase`)
 
 [![CI](https://github.com/mariostosic0806/billing-watchdog/actions/workflows/ci.yml/badge.svg)](https://github.com/mariostosic0806/billing-watchdog/actions/workflows/ci.yml)
-[![GitHub Marketplace](https://img.shields.io/badge/GitHub%20Marketplace-v2.4.1-1F7A4D?logo=githubactions&logoColor=white)](https://github.com/marketplace/actions/stripe-supabase-billing-integrity-watchdog)
+[![GitHub Marketplace](https://img.shields.io/badge/GitHub%20Marketplace-v2.4.2-1F7A4D?logo=githubactions&logoColor=white)](https://github.com/marketplace/actions/stripe-supabase-billing-integrity-watchdog)
 
 Deterministic Stripe ↔ PostgreSQL/Supabase billing integrity reconciler, zero-credential `ProofTwin` pull-request security gate (SQL, Drizzle ORM, Prisma, Next.js, Python FastAPI, Autumn, Stripe Billing Meters, and `.mcp.json` lockfiles), and self-hosted AI credit circuit-breaker.
 
-- **GitHub Marketplace Action (`v2.4.1`, MIT):** [github.com/marketplace/actions/stripe-supabase-billing-integrity-watchdog](https://github.com/marketplace/actions/stripe-supabase-billing-integrity-watchdog)
+- **GitHub Marketplace Action (`v2.4.2`, MIT):** [github.com/marketplace/actions/stripe-supabase-billing-integrity-watchdog](https://github.com/marketplace/actions/stripe-supabase-billing-integrity-watchdog)
 - **Interactive Browser Simulator & Offline `.sql` / ORM / RLS Linter:** [https://mariostosic0806.github.io/billing-watchdog/](https://mariostosic0806.github.io/billing-watchdog/)
 - **Standalone MIT Agent Skill (`Claude Code`, `ECC`, `Cursor`, `Codex`, `Antigravity`):** [`skills/stripe-supabase-billing-guard/SKILL.md`](skills/stripe-supabase-billing-guard/SKILL.md)
 
@@ -28,7 +28,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      - uses: mariostosic0806/billing-watchdog@v2.4.1
+      - uses: mariostosic0806/billing-watchdog@v2.4.2
         with:
           command: verify-ci
           sql-path: supabase/migrations
@@ -45,7 +45,7 @@ jobs:
 
 ## What It Catches
 
-| Check / Guard | Free Diagnostic Action (`@v2.4.1`) | Self-Hosted Pro v2 (`$49/mo`, `$149` Lifetime, or `$299` Agency) |
+| Check / Guard | Free Diagnostic Action (`@v2.4.2`) | Self-Hosted Pro v2 (`$49/mo`, `$149` Lifetime, or `$299` Agency) |
 | :--- | :---: | :---: |
 | Missing `CHECK (credits_balance >= 0)` & `UNIQUE (stripe_event_id)` across SQL, Drizzle `pgTable`, & Prisma (`examples/bad-migration.sql`) | ✅ Detects & blocks PR | ✅ Generates non-blocking `NOT VALID` + `VALIDATE CONSTRAINT` & `CONCURRENTLY` SQL patches |
 | Multi-Tenant `org_id` / `user_id` RLS & `SECURITY DEFINER` RPC escalation (`target_org_id`, uncorrelated `org_members`) | ✅ Detects & blocks PR | ✅ Live `READ ONLY` Cross-JWT Shadow DB RLS Isolation Prober (`--probe-rls-url` in `src/prooftwin-ci-gate.ts`) |
