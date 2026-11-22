@@ -35,7 +35,7 @@ export function LicenseSheet({ state }: LicenseSheetProps) {
             <SheetTitle>Self-Hosted Pro License &amp; Export Unlock</SheetTitle>
           </div>
           <SheetDescription>
-            Offline cryptographic verification via browser WebCrypto Ed25519 or SHA-256 digest. Zero license telemetry leaves your browser.
+            Offline cryptographic verification via browser WebCrypto Ed25519. Zero license telemetry leaves your browser.
           </SheetDescription>
         </SheetHeader>
 

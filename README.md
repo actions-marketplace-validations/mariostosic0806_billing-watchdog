@@ -8,9 +8,9 @@ Deterministic Stripe ↔ PostgreSQL/Supabase billing integrity reconciler, zero-
 - **GitHub Marketplace Action (`v2.4.2`, MIT):** [github.com/marketplace/actions/stripe-supabase-billing-integrity-watchdog](https://github.com/marketplace/actions/stripe-supabase-billing-integrity-watchdog)
 - **Interactive Browser Simulator & Offline `.sql` / ORM / RLS Linter:** [https://mariostosic0806.github.io/billing-watchdog/](https://mariostosic0806.github.io/billing-watchdog/)
 - **1-Page Technical & Agency Brief (PDF):** [billing-watchdog-cto-brief.pdf](https://mariostosic0806.github.io/billing-watchdog/billing-watchdog-cto-brief.pdf)
-- **Standalone MIT Agent Skill (`Claude Code`, `ECC`, `Cursor`, `Codex`, `Antigravity`):** [`skills/stripe-supabase-billing-guard/SKILL.md`](skills/stripe-supabase-billing-guard/SKILL.md)
+- **Standalone MIT Agent Skill (`Claude Code`, `ECC`, `Cursor`, `Codex`, `Antigravity`):** [`skills/stripe-supabase-billing-guard/SKILL.md`](skills/stripe-supabase-billing-guard/SKILL.md) — install via `npx skills add mariostosic0806/billing-watchdog`
 
-[![Billing Watchdog v2.4.2 Interactive Workbench and SQL Auditor](docs/og-card.png)](https://mariostosic0806.github.io/billing-watchdog/)
+[![Billing Watchdog v2.4.2 Live Demo — 50-Event Storm, SQL/RLS Auditor & Drift Reconciler](docs/demo-watchdog.gif)](https://mariostosic0806.github.io/billing-watchdog/)
 
 ---
 
@@ -32,6 +32,8 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - uses: mariostosic0806/billing-watchdog@v2.4.2
+        # Optional SecOps immutable SHA pin for v2.4.2:
+        # uses: mariostosic0806/billing-watchdog@278b57821d815db29062112fbadf5c7cb688a2e1
         with:
           command: verify-ci
           sql-path: supabase/migrations
