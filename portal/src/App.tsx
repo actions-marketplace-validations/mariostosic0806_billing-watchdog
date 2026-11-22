@@ -127,10 +127,10 @@ export default function App() {
       {/* Sticky Precision Instrument Topbar */}
       <header className="sticky top-0 z-40 border-b border-[#DDD8CE] bg-[#FCFBF8]/95 backdrop-blur-[4px]">
         <div className="mx-auto max-w-[1380px] px-3 sm:px-5">
-          {/* Desktop single-row / Mobile row 1 */}
+          {/* Desktop single-row / Mobile & Tablet row 1 */}
           <div className="flex h-12 items-center justify-between gap-3">
             {/* Brand Mark (Custom 22x22 hairline breaker SVG) */}
-            <div className="flex items-center gap-2.5 min-w-0">
+            <div className="flex items-center gap-2.5 shrink-0">
               <svg
                 width="22"
                 height="22"
@@ -150,8 +150,8 @@ export default function App() {
               </span>
             </div>
 
-            {/* Desktop Centered SmoothTab Rail */}
-            <div className="hidden lg:flex items-center">
+            {/* Desktop Centered SmoothTab Rail (>= 1280px so brand and tabs never collide) */}
+            <div className="hidden xl:flex items-center shrink-0">
               <SmoothTab
                 items={WORKBENCH_TABS}
                 value={activeTab}
@@ -166,6 +166,11 @@ export default function App() {
                 variant="outline"
                 onClick={() => kernel.setLicenseDrawerOpen(true)}
                 className="h-8 px-2.5 text-[12px]"
+                title={
+                  state.isProLicenseUnlocked
+                    ? "Pro Ed25519 license verified"
+                    : "Enter your BWV2E license key to unlock Pro"
+                }
               >
                 <span
                   aria-hidden="true"
@@ -174,9 +179,9 @@ export default function App() {
                     state.isProLicenseUnlocked ? "bg-[#0D7A5F]" : "bg-[#B86B00]"
                   )}
                 />
-                <KeyRound className="h-3.5 w-3.5 sm:hidden" strokeWidth={1.75} />
+                <KeyRound className="h-3.5 w-3.5 shrink-0" strokeWidth={1.75} />
                 <span className="hidden sm:inline">
-                  {state.isProLicenseUnlocked ? "Pro Verified" : "Free Diagnostic"}
+                  {state.isProLicenseUnlocked ? "Pro Verified" : "Unlock Key"}
                 </span>
               </CommandButton>
 
@@ -192,8 +197,8 @@ export default function App() {
             </div>
           </div>
 
-          {/* Mobile / Tablet Row 2 Horizontally Scrollable Mode Rail */}
-          <div className="border-t border-[#DDD8CE] lg:hidden">
+          {/* Mobile / Tablet Row 2 Horizontally Scrollable Mode Rail (< 1280px) */}
+          <div className="border-t border-[#DDD8CE] xl:hidden">
             <SmoothTab
               items={WORKBENCH_TABS}
               value={activeTab}
