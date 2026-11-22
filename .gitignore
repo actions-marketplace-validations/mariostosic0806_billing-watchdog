@@ -1,5 +1,8 @@
 node_modules/
 dist/
+dist-customer/
+radar/
+*.zip
 .env
 .env.*
 *.local.*
@@ -9,6 +12,8 @@ dist/
 /tsconfig.json
 /reconcile.config.json
 /CLAUDE.md
+/START_HERE.md
+/scripts/build-customer-zip.mjs
 /examples/watchdog_atomic_webhook.sql
 /examples/nextjs-stripe-webhook-route.ts
 portal/node_modules/

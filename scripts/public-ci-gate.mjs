@@ -2,7 +2,7 @@
 /**
  * Zero-dependency Public Diagnostic CI Gate (`lint-sql`, `lint-code`, `verify-ci`, `mcp-pin`).
  *
- * Powers `uses: mariostosic0806/billing-watchdog@v2.4.0` in Free Diagnostic Mode when
+ * Powers `uses: mariostosic0806/billing-watchdog@v2.4.2` in Free Diagnostic Mode when
  * invoked from the public repository (where `src/cli.ts` Pro execution modules are
  * omitted). Executable PostgreSQL remediation patches, live Cross-JWT shadow DB probing,
  * and `BYPASSRLS` + Stripe reconciliation stay exclusive to self-hosted `Billing Watchdog Pro v2`.
@@ -18,12 +18,23 @@ import {
   statSync,
   writeFileSync,
 } from "node:fs";
-import { basename, dirname, extname, join, posix, relative, resolve } from "node:path";
+import {
+  basename,
+  dirname,
+  extname,
+  isAbsolute,
+  join,
+  posix,
+  relative,
+  resolve,
+  sep,
+  win32,
+} from "node:path";
 import { fileURLToPath } from "node:url";
 
 const SARIF_SCHEMA_URI = "https://json.schemastore.org/sarif-2.1.0.json";
 const CONTROL_AND_BIDI_RE =
-  /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f\u200b-\u200f\u202a-\u202e\u2060-\u206f\ufeff]/g;
+  /[\u{0}-\u{8}\u{b}\u{c}\u{e}-\u{1f}\u{7f}\u{61c}\u{200b}-\u{200f}\u{202a}-\u{202e}\u{2060}-\u{206f}\u{fe00}-\u{fe0f}\u{feff}\u{e0000}-\u{e007f}\u{e0100}-\u{e01ef}]/gu;
 
 const PUBLIC_CATALOG_TABLE_NAMES = new Set([
   "plans",
@@ -59,7 +70,141 @@ const BILLING_AND_TENANT_RLS_TABLES = new Set([
 ]);
 
 const POISONED_MCP_DESCRIPTION_RE =
-  /<\s*important\s*>|<\s*system\b|<\|im_start\|>|\[INST\]|<!--[\s\S]*?-->|\bignore\s+(?:all\s+)?(?:previous|prior)\s+instructions\b|\bdo\s+not\s+mention\s+this\s+to\s+the\s+user\b|~\/\.ssh\/|\.env\b|\bSUPABASE_SERVICE_ROLE_KEY\b|[\u200b-\u200f\u202a-\u202e\ufeff]/i;
+  /<\s*important\b[^<>]{0,200}>|<\s*system\b|<\|im_start\|>|\[INST\]|<!--[\s\S]*?-->|\b(?:ignore|disregard|forget)\b[^.!?\n]{0,40}?\b(?:previous|prior|above)\b|\bdo\s+not\s+mention\s+this\s+to\s+the\s+user\b|~\/\.ssh\/|~\/\.aws\b|\.aws\/credentials\b|\.ssh\/id_|\bid_(?:rsa|dsa|ecdsa|ed25519)\b|\.env\b|\bSUPABASE_SERVICE_ROLE_KEY\b|[\u{61c}\u{200b}-\u{200f}\u{202a}-\u{202e}\u{2060}-\u{206f}\u{feff}\u{e0000}-\u{e007f}\u{e0100}-\u{e01ef}]|(?<!\p{Extended_Pictographic})[\u{fe00}-\u{fe0f}]|[\u{fe00}-\u{fe0f}]{2}/iu;
+
+// ---- Floating (unpinned) MCP launch specs: npx/bunx/pnpm dlx/yarn dlx/npm exec, uvx/uv tool run/pipx run, docker/podman run
+const EXACT_SEMVER_RE = /^v?\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/;
+const EXACT_PEP440_RE = /^\d+(?:\.\d+)*(?:(?:a|b|rc)\d+)?(?:\.post\d+)?(?:\.dev\d+)?(?:\+[A-Za-z0-9.]+)?$/i;
+const LOCAL_PATH_SPEC_RE = /^(?:\.{1,2}[\\/]|[\\/]|~[\\/]|file:|[A-Za-z]:[\\/])/;
+const GIT_COMMIT_PIN_RE = /[#@][0-9a-f]{40}(?:$|[^0-9a-f])/i;
+const NPX_PACKAGE_OPTS = new Set(["-p", "--package"]);
+const NPX_VALUE_OPTS = new Set(["-c", "--call", "--registry", "--cache", "--userconfig", "--prefix", "-w", "--workspace", "--node-options", "--shell", "--script-shell"]);
+const UVX_PACKAGE_OPTS = new Set(["--from"]);
+const UVX_VALUE_OPTS = new Set(["--with", "--with-editable", "--with-requirements", "--python", "-p", "--index", "--index-url", "--default-index", "--extra-index-url", "-i", "--find-links", "-f", "--constraint", "-c", "--override", "--cache-dir", "--directory", "--project", "--config-file", "--refresh-package", "--reinstall-package", "--upgrade-package", "--env-file", "--python-preference"]);
+const PIPX_PACKAGE_OPTS = new Set(["--spec"]);
+const PIPX_VALUE_OPTS = new Set(["--python", "--index-url", "--pip-args"]);
+const DOCKER_VALUE_OPTS = new Set(["-a", "--attach", "-e", "--env", "--env-file", "-v", "--volume", "--mount", "-p", "--publish", "--expose", "--name", "--network", "--net", "-w", "--workdir", "-u", "--user", "--entrypoint", "-l", "--label", "--label-file", "--platform", "-m", "--memory", "--cpus", "--add-host", "--cap-add", "--cap-drop", "--device", "--dns", "-h", "--hostname", "--ipc", "--pid", "--pull", "--restart", "--runtime", "--security-opt", "--shm-size", "--tmpfs", "--ulimit", "--userns", "--uts", "--volumes-from", "--log-driver", "--log-opt", "--gpus", "--group-add", "--health-cmd", "--cgroupns", "--cidfile", "--stop-signal", "--stop-timeout", "--isolation"]);
+
+/** Package specs passed to a launcher: values of `packageOpts`, else the first positional argument. */
+function launcherPackageSpecs(rest, packageOpts, valueOpts) {
+  const fromOpts = [];
+  let positional;
+  for (let i = 0; i < rest.length; i++) {
+    const a = rest[i];
+    if (a === "--") {
+      positional = rest[i + 1];
+      break;
+    }
+    if (a.startsWith("-")) {
+      const eq = a.indexOf("=");
+      const flag = eq > 0 ? a.slice(0, eq) : a;
+      if (packageOpts.has(flag)) {
+        const v = eq > 0 ? a.slice(eq + 1) : rest[++i];
+        if (v) fromOpts.push(v);
+      } else if (eq < 0 && valueOpts.has(flag)) {
+        i++;
+      }
+      continue;
+    }
+    positional = a;
+    break;
+  }
+  // With `-p/--package` / `--from` / `--spec`, the positional argument is the binary to run, not a package.
+  return fromOpts.length > 0 ? fromOpts : positional ? [positional] : [];
+}
+
+function npmSpecUnpinnedReason(spec) {
+  if (LOCAL_PATH_SPEC_RE.test(spec)) return null;
+  if (/^(?:[a-z+]+:\/\/|git\+|github:|gitlab:|bitbucket:|gist:)/i.test(spec) || (!spec.startsWith("@") && spec.includes("/"))) {
+    return GIT_COMMIT_PIN_RE.test(spec) ? null : "git/URL spec without a full commit SHA";
+  }
+  const at = spec.indexOf("@", spec.startsWith("@") ? 1 : 0);
+  const version = at === -1 ? "" : spec.slice(at + 1).replace(/^=/, "");
+  if (!version) return "no version";
+  if (version.toLowerCase() === "latest") return "@latest";
+  if (version.startsWith("npm:")) return npmSpecUnpinnedReason(version.slice(4));
+  if (EXACT_SEMVER_RE.test(version)) return null;
+  return /[\^~*<>|=\s]|(?:^|\.)[xX](?:\.|$)|^v?\d+(?:\.\d+)?$/.test(version) ? "version range" : `dist-tag '@${version}'`;
+}
+
+function pythonSpecUnpinnedReason(spec) {
+  if (LOCAL_PATH_SPEC_RE.test(spec)) return null;
+  if (/^(?:git\+|[a-z+]+:\/\/)/i.test(spec)) {
+    return GIT_COMMIT_PIN_RE.test(spec) ? null : "git/URL spec without a full commit SHA";
+  }
+  const m = /^[A-Za-z0-9][A-Za-z0-9._-]*(?:\[[^\]]*\])?(?:===?\s*([^\s,;]+)|@(\S+))?$/.exec(spec);
+  if (!m) return "version range";
+  const version = m[1] ?? m[2];
+  if (!version) return "no version";
+  if (version.toLowerCase() === "latest") return "@latest";
+  return EXACT_PEP440_RE.test(version) ? null : "version range";
+}
+
+function dockerImageUnpinnedReason(image) {
+  if (/@sha256:[0-9a-f]{64}$/i.test(image)) return null;
+  const colon = image.indexOf(":", image.lastIndexOf("/") + 1);
+  if (colon === -1) return "no tag or digest";
+  const tag = image.slice(colon + 1);
+  if (tag.toLowerCase() === "latest") return ":latest";
+  return EXACT_SEMVER_RE.test(tag) ? null : `mutable tag ':${tag}'`;
+}
+
+/** The first package / image an MCP server launch fetches without an exact version or digest, if any. */
+function findUnpinnedMcpLaunchSpec(command, args) {
+  const argv = [...String(command).trim().split(/\s+/).filter(Boolean), ...args.map((a) => String(a).trim())];
+  const latest = argv.find((a) => /@latest(?:$|\s)/i.test(a));
+  if (latest) return { spec: latest, reason: "@latest" };
+  const launcher = (argv[0] ?? "").split(/[\\/]/).pop().toLowerCase().replace(/\.(?:cmd|exe|bat)$/, "");
+  const rest = argv.slice(1);
+  const sub = (k) => (rest[k] ?? "").toLowerCase();
+  const check = (specs, reasonOf) => {
+    for (const spec of specs) {
+      const reason = reasonOf(spec);
+      if (reason) return { spec, reason };
+    }
+    return null;
+  };
+  const npm = (r) => check(launcherPackageSpecs(r, NPX_PACKAGE_OPTS, NPX_VALUE_OPTS), npmSpecUnpinnedReason);
+  const uvx = (r) => check(launcherPackageSpecs(r, UVX_PACKAGE_OPTS, UVX_VALUE_OPTS), pythonSpecUnpinnedReason);
+  const docker = (r) => check(launcherPackageSpecs(r, new Set(), DOCKER_VALUE_OPTS), dockerImageUnpinnedReason);
+  if (launcher === "npx" || launcher === "bunx" || launcher === "pnpx") return npm(rest);
+  if ((launcher === "pnpm" || launcher === "yarn") && sub(0) === "dlx") return npm(rest.slice(1));
+  if (launcher === "bun" && sub(0) === "x") return npm(rest.slice(1));
+  if (launcher === "npm" && (sub(0) === "exec" || sub(0) === "x")) return npm(rest.slice(1));
+  if (launcher === "uvx") return uvx(rest);
+  if (launcher === "uv" && sub(0) === "tool" && sub(1) === "run") return uvx(rest.slice(2));
+  if (launcher === "pipx" && sub(0) === "run") {
+    return check(launcherPackageSpecs(rest.slice(1), PIPX_PACKAGE_OPTS, PIPX_VALUE_OPTS), pythonSpecUnpinnedReason);
+  }
+  if (launcher === "docker" || launcher === "podman") {
+    if (sub(0) === "run") return docker(rest.slice(1));
+    if (sub(0) === "container" && sub(1) === "run") return docker(rest.slice(2));
+  }
+  return null;
+}
+
+/** Every string leaf of a parsed JSON value (object keys and values at any depth), without recursion. */
+function mcpStringLeaves(value) {
+  const leaves = [];
+  const stack = [value];
+  while (stack.length > 0) {
+    const v = stack.pop();
+    if (typeof v === "string") {
+      leaves.push(v);
+    } else if (v !== null && typeof v === "object") {
+      for (const [key, child] of Object.entries(v)) {
+        leaves.push(key);
+        stack.push(child);
+      }
+    }
+  }
+  return leaves;
+}
+
+/** Each leaf is tested on its own, so a marker can never be assembled across two JSON values. */
+function hasPoisonedMcpStringLeaf(value) {
+  return mcpStringLeaves(value).some((leaf) => POISONED_MCP_DESCRIPTION_RE.test(leaf));
+}
 
 const UNTRUSTED_INPUT_TOOL_RE =
   /(?:^|[^a-z0-9])(?:fetch_url|scrape|browse|read_email|read_issue|github_issue|web_search|read_webpage|webhook_payload)(?:$|[^a-z0-9]|_)/i;
@@ -96,15 +241,38 @@ export function sanitizeUntrustedSnippet(raw, maxLength = 240) {
   return `${cleaned.slice(0, Math.max(0, maxLength - 3))}...`;
 }
 
-function safeCliPathArg(candidate, fallback) {
-  if (!candidate) return fallback;
-  const cleaned = String(candidate)
-    .replace(CONTROL_AND_BIDI_RE, "")
-    .replace(/[`$"';&|<>()\r\n]/g, "")
-    .trim();
-  if (!cleaned || cleaned === "workspace") return fallback;
-  const rel = toRepoRelativePosixUri(cleaned);
-  return /\s/.test(rel) ? `"${rel}"` : rel;
+const PUBLIC_GATE_ARGV = ["node", "scripts/public-ci-gate.mjs"];
+
+/** POSIX `sh` quoting: any argument outside `[A-Za-z0-9_./=:@%+,-]` is single-quoted (`'` -> `'\''`). */
+export function quoteShellArg(arg) {
+  const s = String(arg);
+  return /^[A-Za-z0-9_./=:@%+,-]+$/.test(s) ? s : `'${s.replace(/'/g, "'\\''")}'`;
+}
+
+/** Joins an argv array into one POSIX command line where every argument stays a single literal word. */
+export function formatShellCommand(argv) {
+  return argv.map(quoteShellArg).join(" ");
+}
+
+/** Controls, line breaks, backticks, bidi/invisible/tag characters cannot be shown verbatim on one Markdown line. */
+const SHELL_CODE_SPAN_UNSAFE_RE =
+  /[\u{0}-\u{1f}\u{7f}-\u{9f}`\u{61c}\u{200b}-\u{200f}\u{2028}\u{2029}\u{202a}-\u{202e}\u{2060}-\u{206f}\u{fe00}-\u{fe0f}\u{feff}\u{e0000}-\u{e007f}\u{e0100}-\u{e01ef}]/gu;
+
+/**
+ * Renders a POSIX command line as a single-backtick Markdown code span. Characters that would break
+ * the span or the line are replaced by `?` (always inside single quotes, so never a glob).
+ */
+export function renderShellCommandCodeSpan(command) {
+  return `\`${String(command).replace(SHELL_CODE_SPAN_UNSAFE_RE, "?")}\``;
+}
+
+/** cwd-relative POSIX path when inside the working directory, otherwise the absolute path (never a lossy basename). */
+function reverifyPathArg(candidate, fallback) {
+  if (!candidate || !String(candidate).trim() || candidate === "workspace") return fallback;
+  const abs = resolve(String(candidate));
+  const rel = relative(process.cwd(), abs);
+  if (rel === "") return ".";
+  return rel.startsWith("..") || isAbsolute(rel) ? abs : rel.split(sep).join("/");
 }
 
 function inferPublicReverifyCommand(command, findings) {
@@ -126,17 +294,17 @@ function inferPublicReverifyCommand(command, findings) {
   );
 
   if (command === "lint-sql") {
-    return `node scripts/public-ci-gate.mjs lint-sql --sql-file ${safeCliPathArg(sqlUri, "supabase/migrations")}`;
+    return formatShellCommand([...PUBLIC_GATE_ARGV, "lint-sql", "--sql-file", reverifyPathArg(sqlUri, "supabase/migrations")]);
   }
   if (command === "lint-code") {
-    return `node scripts/public-ci-gate.mjs lint-code ${safeCliPathArg(codeUri, "src")}`;
+    return formatShellCommand([...PUBLIC_GATE_ARGV, "lint-code", reverifyPathArg(codeUri, "src")]);
   }
-  const parts = ["node scripts/public-ci-gate.mjs verify-ci"];
-  if (sqlUri) parts.push(`--sql-file ${safeCliPathArg(sqlUri, "supabase/migrations")}`);
-  if (codeUri) parts.push(`--code-dir ${safeCliPathArg(codeUri, "src")}`);
-  if (mcpUri) parts.push(`--mcp-manifest ${safeCliPathArg(mcpUri, ".mcp.json")}`);
-  if (!sqlUri && !codeUri && !mcpUri) parts.push("--code-dir .");
-  return parts.join(" ");
+  const argv = [...PUBLIC_GATE_ARGV, "verify-ci"];
+  if (sqlUri) argv.push("--sql-file", reverifyPathArg(sqlUri, "supabase/migrations"));
+  if (codeUri) argv.push("--code-dir", reverifyPathArg(codeUri, "src"));
+  if (mcpUri) argv.push("--mcp-manifest", reverifyPathArg(mcpUri, ".mcp.json"));
+  if (!sqlUri && !codeUri && !mcpUri) argv.push("--code-dir", ".");
+  return formatShellCommand(argv);
 }
 
 export function buildPublicAgentFixPacket(
@@ -156,10 +324,8 @@ export function buildPublicAgentFixPacket(
   });
   const criticalCount = sorted.filter((f) => f.severity === "CRITICAL").length;
   const highCount = sorted.filter((f) => f.severity !== "CRITICAL").length;
-  const resolvedReverify = sanitizeUntrustedSnippet(
-    reverifyCommand || inferPublicReverifyCommand(command, sorted),
-    320
-  );
+  // Never HTML-escaped or truncated: it must stay a valid, literal command (rendered via renderShellCommandCodeSpan).
+  const resolvedReverify = reverifyCommand || inferPublicReverifyCommand(command, sorted);
   const lines = [
     `# ProofTwin Agent Remediation Packet (\`${command}\`)`,
     "",
@@ -179,7 +345,7 @@ export function buildPublicAgentFixPacket(
   lines.push("");
   lines.push("1. **Investigate before editing:** Read the exact file, line, and related migrations/importers before changing any code.");
   lines.push("2. **Preserve invariants:** Keep money/credits as safe integers (`INTEGER`/`BIGINT`), timestamps in UTC ISO-8601, and zero `USING (true)` RLS policies.");
-  lines.push(`3. **Re-verify deterministically:** Re-run \`${resolvedReverify}\` and confirm exit code \`0\`.`);
+  lines.push(`3. **Re-verify deterministically:** Re-run ${renderShellCommandCodeSpan(resolvedReverify)} and confirm exit code \`0\`.`);
   lines.push("");
   lines.push("## Findings (Ordered: CRITICAL -> HIGH)");
   lines.push("");
@@ -255,14 +421,50 @@ function escapeRegExp(literal) {
 function stripSqlCommentsPreservingLines(sql) {
   return String(sql)
     .replace(/--[^\r\n]*/g, (m) => " ".repeat(m.length))
-    .replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\r\n]/g, " "));
+    // Linear: an unclosed `/*` runs to EOF once and stays text (as before), instead of one rescan per `/*`.
+    .replace(/\/\*(?:[^*]|\*(?!\/))*(\*\/|$)/g, (m, close) =>
+      close ? m.replace(/[^\r\n]/g, " ") : m
+    );
+}
+
+const JS_STRIP_RE_CACHE = new Map();
+
+/**
+ * ReDoS-safe tokenizer: escape pairs and plain characters never overlap, and an unclosed string or
+ * block comment is consumed to EOF once (group 2 / 3 empty) instead of being rescanned from every
+ * later opener. `quotes` / `blockComments` drop openers that can no longer be closed in a tail.
+ */
+function jsStripRegExp(quotes, blockComments) {
+  const key = `${quotes}|${blockComments}`;
+  let re = JS_STRIP_RE_CACHE.get(key);
+  if (!re) {
+    const stringAlt = quotes ? String.raw`([${quotes}])(?:\\[\s\S]|(?!\1)[^\\])*(\1|\\?$)` : "(?!)()()";
+    const commentAlt = blockComments ? String.raw`\/\*(?:[^*]|\*(?!\/))*(\*\/|$)` : "(?!)()";
+    re = new RegExp(`${stringAlt}|${commentAlt}|${String.raw`\/\/[^\r\n]*`}`, "g");
+    JS_STRIP_RE_CACHE.set(key, re);
+  }
+  return re;
+}
+
+function stripJsCommentsFrom(source, quotes, blockComments) {
+  return source.replace(jsStripRegExp(quotes, blockComments), (match, quote, stringClose, commentClose) => {
+    if (quote) {
+      // Unclosed string: no later `quote` can close either, so it is plain text (as before) and the
+      // tail is re-tokenized without that opener (linear instead of one rescan per opener).
+      return stringClose === quote
+        ? match
+        : quote + stripJsCommentsFrom(match.slice(1), quotes.replace(quote, ""), blockComments);
+    }
+    if (match.startsWith("/*") && commentClose !== "*/") {
+      // Unclosed `/*` (e.g. inside a regex literal) is not a comment: keep the code after it visible.
+      return "/*" + stripJsCommentsFrom(match.slice(2), quotes, false);
+    }
+    return match.replace(/[^\r\n]/g, " ");
+  });
 }
 
 function stripJsCommentsPreservingLines(code) {
-  return String(code).replace(
-    /(["'`])(?:\\[\s\S]|(?!\1)[\s\S])*?\1|\/\*[\s\S]*?\*\/|\/\/[^\r\n]*/g,
-    (match, quote) => (quote ? match : match.replace(/[^\r\n]/g, " "))
-  );
+  return stripJsCommentsFrom(String(code), "\"'`", true);
 }
 
 function stripPythonCommentsPreservingLines(code) {
@@ -423,7 +625,7 @@ function splitTopLevelCommas(text) {
   return parts;
 }
 
-function toRepoRelativePosixUri(filePath, repoRoot = process.cwd()) {
+export function toRepoRelativePosixUri(filePath, repoRoot = process.cwd()) {
   const trimmed = String(filePath || "").trim();
   if (!trimmed) return "workspace";
   const normalizedSlashes = trimmed.replace(/\\/g, "/");
@@ -435,9 +637,13 @@ function toRepoRelativePosixUri(filePath, repoRoot = process.cwd()) {
       return cleanRel;
     }
   }
-  const resolvedRoot = resolve(repoRoot);
-  const resolvedTarget = resolve(resolvedRoot, trimmed);
-  const rel = relative(resolvedRoot, resolvedTarget).replace(/\\/g, "/");
+  // Windows drive paths (`C:\repo\...`) must be resolved with win32 semantics even on POSIX runners.
+  const useWin32 = isWinDrive || /^[a-zA-Z]:[\\/]/.test(String(repoRoot).trim());
+  const resolvedRoot = useWin32 ? win32.resolve(repoRoot) : resolve(repoRoot);
+  const resolvedTarget = useWin32 ? win32.resolve(resolvedRoot, trimmed) : resolve(resolvedRoot, trimmed);
+  const rel = (
+    useWin32 ? win32.relative(resolvedRoot, resolvedTarget) : relative(resolvedRoot, resolvedTarget)
+  ).replace(/\\/g, "/");
   if (
     rel &&
     rel !== "." &&
@@ -903,10 +1109,10 @@ export function lintLoadedPublicSqlFiles(loadedSqlFiles, reconcileConfig = null)
       const isWebhookOrLedgerTbl =
         /transaction|ledger|webhook|stripe_event/i.test(bareTbl);
       const evtMatch = isWebhookOrLedgerTbl
-        ? /(?:^|[,(\s])"?(stripe_event_id|webhook_event_id|webhook_evt_id|event_id)"?\s+[a-zA-Z]/i.exec(
+        ? /(?:^|[,(\s])"?(stripe_event_id|webhook_event_id|webhook_evt_id|event_id)"?\s+"?[a-zA-Z]/i.exec(
             info.colsBody
           )
-        : /(?:^|[,(\s])"?(stripe_event_id|webhook_event_id|webhook_evt_id)"?\s+[a-zA-Z]/i.exec(
+        : /(?:^|[,(\s])"?(stripe_event_id|webhook_event_id|webhook_evt_id)"?\s+"?[a-zA-Z]/i.exec(
             info.colsBody
           );
       if (evtMatch) {
@@ -1455,8 +1661,9 @@ export function lintPublicCodeText(src, fp = "route.ts") {
   if (!/WatchdogStateMachine|NaiveAiWebhookHandler/.test(clean)) {
     const jsRmwPropRe =
       /\b(credits|credits_balance|creditsBalance|page_credits_balance|pageCreditsBalance|tokens_balance|tokensBalance|token_quota|tokenQuota|balance)\s*:\s*\(*\s*[a-zA-Z0-9_$.]+(?:\?\.|!\.|\.)(credits|credits_balance|creditsBalance|page_credits_balance|pageCreditsBalance|tokens_balance|tokensBalance|token_quota|tokenQuota|balance)(?:\s*\?\?\s*\d+)?\s*\)*\s*[+-]\s*[^\r\n,;)}]+/;
+    // `(?<![\w$])` starts only at an identifier-run start (was `\b`: quadratic on `a$a$a$...`).
     const jsRmwMutateRe =
-      /\b[a-zA-Z0-9_$]+(?:\?\.|!\.|\.)(credits|credits_balance|creditsBalance|page_credits_balance|token_quota|balance)\s*[+-]=\s*[^\r\n;]+/;
+      /(?<![\w$])[\w$]+(?:\?\.|!\.|\.)(credits|credits_balance|creditsBalance|page_credits_balance|token_quota|balance)\s*[+-]=\s*[^\r\n;]+/;
     const pyRmwRe =
       /\b[a-zA-Z0-9_]+\s*=\s*\(*\s*[a-zA-Z0-9_]+(?:\[\s*['"](?:credits|credits_balance|page_credits_balance|tokens_balance|token_quota|balance)['"]\s*\]|\.(?:credits|credits_balance|page_credits_balance|tokens_balance|token_quota|balance))(?:\s+or\s+0)?\s*\)*\s*[+-]\s*[^\r\n#]+/;
 
@@ -1675,13 +1882,13 @@ export function parsePublicMcpManifest(manifest, manifestPath = "mcp.json", rawM
     if (entries.length === 1 && serverName === "workspace-mcp") {
       serverName = entries[0][0];
     }
+    const serverToolOrigins = [];
     for (const [serverId, srv] of entries) {
       if (!srv || typeof srv !== "object" || Array.isArray(srv)) continue;
       const command = typeof srv.command === "string" ? srv.command : "";
       const args = Array.isArray(srv.args) ? srv.args.map((a) => String(a)) : [];
       const desc = typeof srv.description === "string" ? srv.description : "";
       const url = typeof srv.url === "string" ? srv.url : "";
-      const envStr = srv.env && typeof srv.env === "object" ? JSON.stringify(srv.env) : "";
 
       const srvMatch = rawManifest
         ? new RegExp(`"${escapeRegExp(serverId)}"`).exec(rawManifest)
@@ -1690,8 +1897,10 @@ export function parsePublicMcpManifest(manifest, manifestPath = "mcp.json", rawM
         ? lineAndSnippetAtOffset(rawManifest, srvMatch.index)
         : { startLine: 1, snippet: "" };
 
-      const combinedMeta = `${desc}\n${command}\n${args.join(" ")}\n${url}\n${envStr}`;
-      if (POISONED_MCP_DESCRIPTION_RE.test(combinedMeta)) {
+      // Every string leaf of the server entry (its id, command, args, env, url, headers, ...); its tools
+      // are scanned one by one in diffMcpManifest.
+      const { tools: _serverTools, ...serverMeta } = srv;
+      if (hasPoisonedMcpStringLeaf([serverId, Array.isArray(srv.tools) ? serverMeta : srv])) {
         serverFindings.push({
           severity: "CRITICAL",
           code: "MCP_TOOL_POISONING_DIRECTIVE",
@@ -1703,13 +1912,13 @@ export function parsePublicMcpManifest(manifest, manifestPath = "mcp.json", rawM
         });
       }
 
-      const unpinnedLatest = [command, ...args].find((a) => /@latest(?:$|\s)/i.test(a.trim()));
-      if (unpinnedLatest) {
+      const unpinnedLaunch = findUnpinnedMcpLaunchSpec(command, args);
+      if (unpinnedLaunch) {
         serverFindings.push({
           severity: "CRITICAL",
           code: "MCP_UNPINNED_ADDED_TOOL",
           target: serverId,
-          message: `MCP server '${serverId}' executes floating unpinned package '${unpinnedLatest}' (@latest).`,
+          message: `MCP server '${serverId}' executes floating unpinned package '${unpinnedLaunch.spec}' (${unpinnedLaunch.reason}).`,
           filePath: resolve(manifestPath),
           startLine: loc.startLine,
           snippet: loc.snippet,
@@ -1717,7 +1926,10 @@ export function parsePublicMcpManifest(manifest, manifestPath = "mcp.json", rawM
       }
 
       if (Array.isArray(srv.tools) && srv.tools.length > 0) {
-        tools.push(...srv.tools);
+        for (const t of srv.tools) {
+          serverToolOrigins.push({ index: tools.length, serverId });
+          tools.push(t);
+        }
       } else {
         tools.push({
           name: `mcpServer:${serverId}`,
@@ -1731,6 +1943,33 @@ export function parsePublicMcpManifest(manifest, manifestPath = "mcp.json", rawM
         });
       }
     }
+
+    // Tool shadowing: the same tool name on 2+ servers is keyed `serverId/name` so neither entry hides the
+    // other in the lockfile diff. Non-colliding names stay bare, so existing lockfiles remain valid.
+    const nameCounts = new Map();
+    for (const t of tools) {
+      if (t && typeof t.name === "string") nameCounts.set(t.name, (nameCounts.get(t.name) ?? 0) + 1);
+    }
+    for (const { index, serverId } of serverToolOrigins) {
+      const t = tools[index];
+      if (t && typeof t === "object" && typeof t.name === "string" && (nameCounts.get(t.name) ?? 0) > 1) {
+        tools[index] = { ...t, name: `${serverId}/${t.name}` };
+      }
+    }
+  }
+
+  // Manifest-level string leaves (e.g. a flat manifest's `serverName`); servers and tools are scanned above / per tool.
+  const { tools: _topLevelTools, mcpServers: _topLevelServers, ...manifestMeta } = manifest;
+  if (hasPoisonedMcpStringLeaf(manifestMeta)) {
+    serverFindings.push({
+      severity: "CRITICAL",
+      code: "MCP_TOOL_POISONING_DIRECTIVE",
+      target: serverName,
+      message: "MCP manifest metadata (e.g. serverName) contains prompt-injection, secret-access, or hidden Unicode markers.",
+      filePath: resolve(manifestPath),
+      startLine: 1,
+      snippet: "",
+    });
   }
 
   return { serverName, tools, serverFindings };
@@ -1820,6 +2059,39 @@ export function diffMcpManifest(manifestPath, lockPath) {
     }
   };
 
+  // Duplicate keys are ambiguous (a Map keeps only the last entry and hides the other tool's diff): fail closed.
+  const countNames = (names) => {
+    const counts = new Map();
+    for (const n of names) counts.set(n, (counts.get(n) ?? 0) + 1);
+    return counts;
+  };
+  for (const [name, n] of countNames(tools.map((t) => String(t?.name || "")))) {
+    if (n > 1) {
+      pushOnce({
+        severity: "CRITICAL",
+        code: "MCP_TOOL_POISONING_DIRECTIVE",
+        target: name,
+        message: `MCP tool name '${name}' is declared ${n} times (tool shadowing), so it cannot be pinned or diffed unambiguously.`,
+        filePath: resolvedManifest,
+        startLine: 1,
+        snippet: "",
+      });
+    }
+  }
+  for (const [name, n] of countNames(lockTools.map((lt) => String(lt?.name || "")))) {
+    if (n > 1) {
+      pushOnce({
+        severity: "CRITICAL",
+        code: "MCP_SILENT_DESCRIPTION_RUG_PULL",
+        target: name,
+        message: `Lockfile pins ${n} entries named '${name}' (written before same-name tools were keyed 'serverId/name'), so a change to either tool cannot be verified; re-pin with mcp-pin.`,
+        filePath: resolvedManifest,
+        startLine: 1,
+        snippet: "",
+      });
+    }
+  }
+
   let hasUntrustedInput = false;
   let hasSensitiveRead = false;
   let hasUngatedExternalEgress = false;
@@ -1828,7 +2100,9 @@ export function diffMcpManifest(manifestPath, lockPath) {
     const toolName = String(t.name || "");
     const lookupKey = toolName.startsWith("mcpServer:")
       ? toolName.slice("mcpServer:".length)
-      : toolName;
+      : toolName.includes("/") && !rawManifest.includes(JSON.stringify(toolName))
+        ? toolName.split("/").pop() // `serverId/name` key of a cross-server collision
+        : toolName;
     const desc = String(t.description ?? "");
     const descTrimmed = desc.trim();
     const descHashRaw = sha256Hex(desc);
@@ -1836,7 +2110,6 @@ export function diffMcpManifest(manifestPath, lockPath) {
     const schemaHash = canonicalSha256(t.inputSchema ?? {});
     const combinedHash = sha256Hex(`${toolName}\n${descHashTrimmed}\n${schemaHash}`);
     const fullToolHash = canonicalSha256(t);
-    const serializedSchema = t.inputSchema ? JSON.stringify(t.inputSchema) : "";
 
     const nameMatch = lookupKey
       ? new RegExp(`"${escapeRegExp(lookupKey)}"`).exec(rawManifest)
@@ -1846,14 +2119,14 @@ export function diffMcpManifest(manifestPath, lockPath) {
       : { startLine: 1, snippet: "" };
 
     if (
-      POISONED_MCP_DESCRIPTION_RE.test(desc) ||
-      (serializedSchema && POISONED_MCP_DESCRIPTION_RE.test(serializedSchema))
+      // Every string leaf of the tool definition: name, description, inputSchema, annotations, ...
+      hasPoisonedMcpStringLeaf(t)
     ) {
       pushOnce({
         severity: "CRITICAL",
         code: "MCP_TOOL_POISONING_DIRECTIVE",
         target: toolName,
-        message: `MCP tool '${toolName}' description or inputSchema contains prompt-injection, credential-access, or hidden Unicode markers.`,
+        message: `MCP tool '${toolName}' name, description, inputSchema or annotations contain prompt-injection, credential-access, or hidden Unicode markers.`,
         filePath: resolvedManifest,
         startLine: loc.startLine,
         snippet: loc.snippet,
@@ -2008,7 +2281,7 @@ export function buildPublicSarifLog(findings, evaluatedAtUtc) {
         tool: {
           driver: {
             name: "Billing Watchdog & ProofTwin (Free Diagnostic Gate)",
-            version: "2.4.0",
+            version: "2.4.2",
             informationUri: "https://github.com/mariostosic0806/billing-watchdog",
             rules,
           },
@@ -2155,23 +2428,25 @@ export function parseArgs(argv) {
   };
 }
 
+/** Builds the re-verify command from an argv array; every argument is POSIX-quoted (see `formatShellCommand`). */
 function buildCliReverifyString(opts) {
-  const q = (p) => safeCliPathArg(p, ".");
+  const q = (p) => reverifyPathArg(p, ".");
   if (opts.command === "lint-sql") {
-    const paths = opts.sqlPaths.map((p) => `--sql-file ${q(p)}`).join(" ");
-    const cfg = opts.configPath ? ` --config ${q(opts.configPath)}` : "";
-    return `node scripts/public-ci-gate.mjs lint-sql ${paths}${cfg}`.trim();
+    const argv = [...PUBLIC_GATE_ARGV, "lint-sql"];
+    for (const p of opts.sqlPaths) argv.push("--sql-file", q(p));
+    if (opts.configPath) argv.push("--config", q(opts.configPath));
+    return formatShellCommand(argv);
   }
   if (opts.command === "lint-code") {
-    return `node scripts/public-ci-gate.mjs lint-code ${opts.codePaths.map(q).join(" ")}`.trim();
+    return formatShellCommand([...PUBLIC_GATE_ARGV, "lint-code", ...opts.codePaths.map(q)]);
   }
-  const parts = ["node scripts/public-ci-gate.mjs verify-ci"];
-  if (opts.configPath) parts.push(`--config ${q(opts.configPath)}`);
-  for (const sp of opts.sqlPaths) parts.push(`--sql-file ${q(sp)}`);
-  for (const cp of opts.codePaths) parts.push(`--code-dir ${q(cp)}`);
-  if (opts.mcpManifest) parts.push(`--mcp-manifest ${q(opts.mcpManifest)}`);
-  if (opts.mcpLock) parts.push(`--mcp-lock ${q(opts.mcpLock)}`);
-  return parts.join(" ");
+  const argv = [...PUBLIC_GATE_ARGV, "verify-ci"];
+  if (opts.configPath) argv.push("--config", q(opts.configPath));
+  for (const sp of opts.sqlPaths) argv.push("--sql-file", q(sp));
+  for (const cp of opts.codePaths) argv.push("--code-dir", q(cp));
+  if (opts.mcpManifest) argv.push("--mcp-manifest", q(opts.mcpManifest));
+  if (opts.mcpLock) argv.push("--mcp-lock", q(opts.mcpLock));
+  return formatShellCommand(argv);
 }
 
 function loadOptionalPublicConfig(configPath) {

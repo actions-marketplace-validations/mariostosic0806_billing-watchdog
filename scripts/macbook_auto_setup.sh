@@ -23,7 +23,7 @@ node_ok() {
     node -e 'process.exit(process.features.typescript ? 0 : 1)' >/dev/null 2>&1
 }
 
-echo "=== [1/5] Node.js (>= 22.18 with native TypeScript type stripping) ==="
+echo "=== [1/6] Node.js (>= 22.18 with native TypeScript type stripping) ==="
 if ! command -v node >/dev/null 2>&1 && [ -x /opt/homebrew/bin/brew ]; then
   eval "$(/opt/homebrew/bin/brew shellenv)"
 fi
@@ -44,7 +44,7 @@ fi
 echo "Node version: $(node -v)"
 echo "NPM version:  $(npm -v)"
 
-echo "=== [2/5] Dependencies (npm ci from package-lock.json) ==="
+echo "=== [2/6] Dependencies (npm ci from package-lock.json) ==="
 stamp="node_modules/.billing-watchdog-setup-stamp"
 want="$(cat package.json package-lock.json | shasum | cut -c1-16) node-$(node -v)"
 have="$(cat "$stamp" 2>/dev/null || true)"
@@ -55,7 +55,7 @@ else
   echo "node_modules already matches package-lock.json (npm ci skipped)."
 fi
 
-echo "=== [3/5] Strict TypeScript check + automated tests ==="
+echo "=== [3/6] Strict TypeScript check + automated tests ==="
 npm run typecheck
 test_log="$(mktemp -t billing-watchdog-tests)"
 trap 'rm -f "$test_log"' EXIT
@@ -70,7 +70,7 @@ if [ -z "$tests_total" ] || [ -z "$tests_pass" ] || [ "${tests_fail:-1}" != "0" 
 fi
 echo "Test result: ${tests_pass}/${tests_total} passed, ${tests_fail} failed (node:test)"
 
-echo "=== [4/5] Offline SQL linter smoke test (examples/bad-migration.sql) ==="
+echo "=== [4/6] Offline SQL linter smoke test (examples/bad-migration.sql) ==="
 # --no-fail-on-critical: the example is intentionally bad, so CRITICAL findings are expected.
 lint_out="$(node src/cli.ts lint-sql examples/bad-migration.sql --no-fail-on-critical)"
 for code in MISSING_NON_NEGATIVE_CHECK MISSING_WEBHOOK_UNIQUE_CONSTRAINT MISSING_RLS_OR_POLICY; do
@@ -85,7 +85,7 @@ done
 lint_findings="$(printf '%s\n' "$lint_out" | grep -c '^### \[Check #' || true)"
 echo "SQL linter OK: ${lint_findings} expected findings in examples/bad-migration.sql"
 
-echo "=== [5/5] Chaos Webhook Simulator & Active Circuit-Breaker Dry-Run smoke test ==="
+echo "=== [5/6] Chaos Webhook Simulator & Active Circuit-Breaker Dry-Run smoke test ==="
 chaos_out="$(node src/cli.ts chaos)"
 case "$chaos_out" in
   *"SCENARIO_A_PARALLEL_BURST_20"* ) ;;
@@ -104,4 +104,27 @@ case "$quarantine_out" in
 esac
 echo "Chaos Simulator & Circuit-Breaker Dry-Run OK."
 
-echo "=== SUCCESS: billing-watchdog v2 (${tests_pass}/${tests_total} tests green, typecheck OK, SQL linter OK, Chaos & Circuit-Breaker OK) ==="
+echo "=== [6/6] Browser portal (portal/: npm ci + tsc --noEmit + vite build + docs/ gates) ==="
+portal_status="skipped (no portal/package.json)"
+if [ -f portal/package.json ]; then
+  portal_stamp="portal/node_modules/.billing-watchdog-portal-setup-stamp"
+  portal_want="$(cat portal/package.json portal/package-lock.json | shasum | cut -c1-16) node-$(node -v)"
+  portal_have="$(cat "$portal_stamp" 2>/dev/null || true)"
+  if [ "$portal_want" != "$portal_have" ] || [ ! -x portal/node_modules/.bin/vite ] || [ ! -x portal/node_modules/.bin/tsc ]; then
+    npm --prefix portal ci --no-fund --no-audit
+    printf '%s\n' "$portal_want" > "$portal_stamp"
+  else
+    echo "portal/node_modules already matches portal/package-lock.json (npm ci skipped)."
+  fi
+  # `build` = tsc --noEmit + vite build + scripts/sync-docs.mjs (syncs docs/ and enforces the
+  # GDPR self-hosted fonts, Polar AUP, zero-plaintext-key and private-import gates).
+  npm --prefix portal run build
+  if git rev-parse --is-inside-work-tree >/dev/null 2>&1 &&
+    [ -n "$(git status --porcelain -- docs/index.html docs/assets 2>/dev/null)" ]; then
+    echo "NOTE: the portal build regenerated docs/ (commit docs/ together with the portal/ source change)."
+  fi
+  portal_status="OK"
+fi
+echo "Browser portal: ${portal_status}."
+
+echo "=== SUCCESS: billing-watchdog v2 (${tests_pass}/${tests_total} tests green, typecheck OK, SQL linter OK, Chaos & Circuit-Breaker OK, portal ${portal_status}) ==="

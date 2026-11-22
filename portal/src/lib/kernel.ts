@@ -174,7 +174,7 @@ export interface WatchdogKernelApi {
   setSqlInput: (sqlText: string) => void;
   runSqlLinter: (codeOverride?: string) => void;
   unlockProPortal: (explicitKey?: string) => boolean;
-  verifyEd25519LicenseInBrowser: (rawKey: string, overrideSpkiB64?: string) => Promise<boolean>;
+  verifyEd25519LicenseInBrowser: (rawKey: string) => Promise<boolean>;
   startPolarCheckout: (itemName: string, amountCents: number) => boolean;
   setLicenseDrawerOpen: (open: boolean) => void;
   setLicenseKeyDraft: (draft: string) => void;
