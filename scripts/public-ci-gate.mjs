@@ -2488,7 +2488,7 @@ function main() {
       `[Billing Watchdog Public Diagnostic Action] Command '${opts.command}' requires the self-hosted Billing Watchdog Pro v2 engine (live REPEATABLE READ + Stripe reconciliation).`
     );
     console.error(
-      "Unlock Pro ($49/mo, $149 Lifetime, or $299 Agency): https://mariostosic0806.github.io/billing-watchdog/#self-hosted-license"
+      "Unlock Pro ($149 Lifetime or $299 Agency): https://mariostosic0806.github.io/billing-watchdog/#self-hosted-license"
     );
     process.exit(2);
   }

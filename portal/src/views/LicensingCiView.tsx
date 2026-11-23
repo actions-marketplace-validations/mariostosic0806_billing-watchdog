@@ -83,10 +83,10 @@ export function LicensingCiView({ onOpenAuditor }: LicensingCiViewProps) {
         </div>
       </div>
 
-      {/* 4 Architectural Hairline Licensing Columns (Zero bubbly SaaS cards) */}
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 border-b border-[#DDD8CE] divide-y md:divide-y-0 md:divide-x divide-[#DDD8CE]">
+      {/* 3 Architectural Hairline Licensing Columns (Zero bubbly SaaS cards) */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 border-b border-[#DDD8CE] divide-y lg:divide-y-0 lg:divide-x divide-[#DDD8CE]">
         {/* Column 1: Free MIT Action */}
-        <div className="flex flex-col justify-between p-4 sm:p-5 bg-[#FCFBF8] md:border-b xl:border-b-0 border-[#DDD8CE]">
+        <div className="flex flex-col justify-between p-4 sm:p-5 bg-[#FCFBF8]">
           <div>
             <div className="text-[12px] font-semibold text-[#5C5850]">Free PR Gate &amp; Diagnostic</div>
             <div className="mt-2 flex items-baseline gap-1.5">
@@ -113,52 +113,7 @@ export function LicensingCiView({ onOpenAuditor }: LicensingCiViewProps) {
           </Button>
         </div>
 
-        {/* Column 2: Monthly Rolling Rules & 33-Day Key */}
-        <div className="flex flex-col justify-between p-4 sm:p-5 bg-[#FCFBF8] md:border-b xl:border-b-0 border-[#DDD8CE]">
-          <div>
-            <div className="flex items-center justify-between gap-2">
-              <span className="text-[12px] font-semibold text-[#5C5850]">
-                Pro Monthly v2
-              </span>
-              <Badge variant="neutral">Rolling Key</Badge>
-            </div>
-            <div className="mt-2 flex items-baseline gap-1.5">
-              <span className="font-mono text-[26px] font-semibold tracking-tight text-[#141413] tabular-nums">
-                $49
-              </span>
-              <span className="text-[12.5px] text-[#68645B]">/ month</span>
-            </div>
-            <p className="mt-1 text-[12.5px] text-[#47453F]">
-              Monthly rolling rules &amp; 33-day key (<code className="font-mono text-[11px]">BWV2E-PRO_MONTHLY</code>)
-            </p>
-
-            <ul className="mt-4 space-y-2 border-t border-[#DDD8CE] pt-4 text-[12.5px] text-[#47453F]">
-              <li>Unlocks Studio-safe SQL &amp; zombie cut-off exports</li>
-              <li>
-                Rolling CI rules &amp; 33-day signed <code className="font-mono text-[11.5px]">BWV2E</code> key
-              </li>
-              <li>
-                PL/pgSQL <code className="font-mono text-[11.5px]">SELECT ... FOR UPDATE</code> hold RPCs
-              </li>
-              <li>
-                Runaway credit circuit-breaker &amp; zombie sync
-              </li>
-              <li>
-                Async Postgres <code className="font-mono text-[11.5px]">executeGuardedAiStreamSql</code>
-              </li>
-            </ul>
-          </div>
-
-          <Button
-            variant="outline"
-            className="mt-6 w-full border-[#141413] text-[#141413]"
-            onClick={() => kernel.startPolarCheckout('Pro Monthly Watchdog v2 ($49/mo)', 4900)}
-          >
-            Buy via Polar.sh ($49/mo)
-          </Button>
-        </div>
-
-        {/* Column 3: Lifetime Team License (Featured Single Primary Action) */}
+        {/* Column 2: Lifetime Team License (Featured Single Primary Action) */}
         <div className="flex flex-col justify-between p-4 sm:p-5 border-t-2 border-t-[#141413] bg-[#F4F2EC]/45">
           <div>
             <div className="flex items-center justify-between gap-2">
