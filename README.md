@@ -59,7 +59,7 @@ jobs:
 | OASIS SARIF 2.1.0 GitHub Code Scanning & PR Annotations (`sarif-file` / `--sarif-out`) | ✅ Exact file + 1-based line annotations | ✅ Full rule remediation metadata across `lint-sql`, `lint-code`, `verify-ci` & `scan` (`src/sarif.ts`) |
 | Fact-Forcing Agent Remediation Packet (`agent-fix-file` / `--agent-fix-out`) + MIT Agent Skill | ✅ Prompt-injection-safe diagnostic checklist (`skills/stripe-supabase-billing-guard/SKILL.md`) | ✅ Schema/table-interpolated remediation contracts + runnable re-verify commands (`src/agent-fix.ts`) |
 | Bi-Directional Stripe ↔ Postgres Drift (`ZOMBIE_SUBSCRIPTION`, `DROPPED_WEBHOOK_MISSING_CREDIT_GRANT`, `CREDIT_CONSERVATION_VIOLATION`) | — | ✅ Single `BEGIN ISOLATION LEVEL REPEATABLE READ, READ ONLY` snapshot + `--redact-entities` `SLACK_WEBHOOK_URL` / `DISCORD_WEBHOOK_URL` alerts |
-| Active Runaway Credit Circuit-Breaker (`is_billing_quarantined = true`) & Asymmetric `Ed25519` Offline Key (`BWV2E-...`) | — | ✅ Deterministic Dry-Run Preview + Auto-Quarantine (`src/cli.ts`, `src/license.ts`, `src/polar-fulfillment.ts`) |
+| Active Runaway Credit Circuit-Breaker (`is_billing_quarantined = true`) & Asymmetric `Ed25519` Offline Key (`BWV2E-...`) | — | ✅ Deterministic Dry-Run Preview + Auto-Quarantine (`src/cli.ts`, `src/license.ts`) |
 
 ---
 
@@ -74,7 +74,7 @@ GRANT USAGE ON SCHEMA public TO billing_watchdog_ro;
 GRANT SELECT ON public.users, public.subscriptions, public.wallets, public.credit_transactions TO billing_watchdog_ro;
 ```
 
-Every live Pro run opens a single `BEGIN ISOLATION LEVEL REPEATABLE READ, READ ONLY;` transaction, verifies `SHOW transaction_read_only;` equals `on`, sets `SET LOCAL row_security = off;`, snapshots mapped columns before querying Stripe, and dispatches alerts only to your configured `SLACK_WEBHOOK_URL` or `DISCORD_WEBHOOK_URL` (the full PL/pgSQL webhook & stream-hold RPC migration `examples/watchdog_atomic_webhook.sql` ships in Self-Hosted Pro v2; see [`scripts/macbook_auto_setup.sh`](scripts/macbook_auto_setup.sh) and [`examples/polar_fulfillment_ledger.sql`](examples/polar_fulfillment_ledger.sql) in this repo).
+Every live Pro run opens a single `BEGIN ISOLATION LEVEL REPEATABLE READ, READ ONLY;` transaction, verifies `SHOW transaction_read_only;` equals `on`, sets `SET LOCAL row_security = off;`, snapshots mapped columns before querying Stripe, and dispatches alerts only to your configured `SLACK_WEBHOOK_URL` or `DISCORD_WEBHOOK_URL` (the full PL/pgSQL webhook & stream-hold RPC migration `examples/watchdog_atomic_webhook.sql` ships in Self-Hosted Pro v2).
 
 ---
 
