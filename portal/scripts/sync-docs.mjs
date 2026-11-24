@@ -64,10 +64,9 @@ const requiredPatterns = [
   /REDACTED IN FREE DIAGNOSTIC MODE/,
   /RLS_PERMISSIVE_NO_TENANT_FILTER/,
   /function\s+startPolarCheckout\s*\(\s*itemName\s*,\s*amountCents\s*\)/,
-  /startPolarCheckout\(\s*'Pro Monthly Watchdog v2 \(\$49\/mo\)'\s*,\s*4900\s*\)/,
   /startPolarCheckout\(\s*'Lifetime Team License v2 \(\$149 One-Time\)'\s*,\s*14900\s*\)/,
   /startPolarCheckout\(\s*'Agency &(?:amp;)? Client-Handover License v2 \(\$299 One-Time\)'\s*,\s*29900\s*\)/,
-  /const\s+POLAR_CHECKOUT_URLS\s*=\s*\{\s*4900\s*:\s*"[^"]*"\s*,\s*14900\s*:\s*"[^"]*"\s*,\s*29900\s*:\s*"[^"]*"\s*\}/,
+  /const\s+POLAR_CHECKOUT_URLS\s*=\s*\{\s*14900\s*:\s*"[^"]*"\s*,\s*29900\s*:\s*"[^"]*"\s*\}/,
   /Mario Stosic/i,
   /Individual Software Developer/i,
   /terms\.html/,
@@ -131,6 +130,11 @@ for (const file of builtFilesToAudit) {
 assert.doesNotMatch(builtHtml, /["']49\.00["']/);
 assert.doesNotMatch(builtHtml, /["']149\.00["']/);
 assert.doesNotMatch(builtHtml, /["']299\.00["']/);
+assert.doesNotMatch(
+  builtHtml,
+  /polar_cl_JhTO5p5RGdDJNEBzIj6DzNck8gJ8DsuJQceUo04sPXQ|Pro Monthly Watchdog v2/,
+  "Archived $49/mo tier must not ship in docs/index.html"
+);
 
 for (const sibling of [
   "docs/terms.html",

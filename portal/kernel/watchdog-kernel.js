@@ -610,7 +610,7 @@ function unlockProPortal(explicitKey) {
 
   applyLicenseRelockState(
     "error",
-    "Invalid License Key: only signed BWV2E-... Ed25519 keys unlock Pro exports. Purchase Pro ($49/mo), Lifetime ($149), or Agency ($299) below to receive your BWV2E-... key.",
+    "Invalid License Key: only signed BWV2E-... Ed25519 keys unlock Pro exports. Purchase Lifetime Team ($149) or Agency ($299) below to receive your BWV2E-... key.",
     "status-danger",
     rawKey
   );
@@ -916,7 +916,7 @@ function runChaosSimulation(filterMode, paramsOverride) {
       "-- Diagnostic Result: " + quarantinedAccounts.length + " account(s) exceeded threshold (" + quarantinedAccounts.map((a) => a.userId + "=" + a.leakCents + "c").join(", ") + ")",
       "--",
       "-- [REDACTED IN FREE DIAGNOSTIC MODE]",
-      "-- Enter your BWV2E-... Pro/Lifetime/Agency License Key above (or purchase Pro $49/mo, Lifetime $149, or Agency $299 below)",
+      "-- Enter your BWV2E-... Lifetime/Agency License Key above (or purchase Lifetime Team $149 or Agency $299 below)",
       "-- to unlock executable circuit-breaker SQL statements & the atomic PL/pgSQL SELECT ... FOR UPDATE engine."
     );
   } else {
@@ -2467,7 +2467,7 @@ function runSqlLinter(codeOverride, presetOverride) {
       "-- Affected Objects: " + findings.map((f) => f.table).join(" | "),
       "--",
       "-- [REDACTED IN FREE DIAGNOSTIC MODE]",
-      "-- Enter your BWV2E-... Pro/Lifetime/Agency License Key above (or purchase Pro $49/mo, Lifetime $149, or Agency $299 below)",
+      "-- Enter your BWV2E-... Lifetime/Agency License Key above (or purchase Lifetime Team $149 or Agency $299 below)",
       "-- to unlock the Supabase Studio-safe Step 1 (Transactional DDL) + Step 2 (Non-Transactional CONCURRENTLY) SQL scripts."
     ].join("\n");
   } else {
@@ -3051,9 +3051,8 @@ function toggleGroupBDemo() {
 }
 
 // Polar.sh Merchant-of-Record Instant Delivery Links (EU VAT / US Tax + GitHub Repo Invite + BWV2E Key)
-// Keyed strictly by INTEGER cents (4900 = PRO_MONTHLY, 14900 = LIFETIME_TEAM, 29900 = AGENCY_TEAM; zero FLOAT/REAL).
+// Keyed strictly by INTEGER cents (14900 = LIFETIME_TEAM, 29900 = AGENCY_TEAM; zero FLOAT/REAL).
 const POLAR_CHECKOUT_URLS = {
-  4900: "https://buy.polar.sh/polar_cl_JhTO5p5RGdDJNEBzIj6DzNck8gJ8DsuJQceUo04sPXQ",
   14900: "https://buy.polar.sh/polar_cl_sHbEpKv3KKusy3yyPKfYABJZ5pZgwBYQ2zO5c343unp",
   29900: "https://buy.polar.sh/polar_cl_NXtryNUpC90fHPJTRBZutEjAwwX2DZfe9bj5c31lz5t"
 };
@@ -3078,7 +3077,7 @@ function startPolarCheckout(itemName, amountCents) {
       ? "AGENCY_TEAM"
       : amountCents === 14900
         ? "LIFETIME_TEAM"
-        : "PRO_MONTHLY";
+        : "COMMERCIAL_LICENSE";
   const displayUsd = formatUsdFromIntegerCents(amountCents);
   const subject = encodeURIComponent(
     "Polar.sh MoR Checkout / Invoice Request - Billing Watchdog v2 (" + tierCode + " - " + amountCents + " cents)"

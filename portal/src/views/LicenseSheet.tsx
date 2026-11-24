@@ -121,7 +121,7 @@ export function LicenseSheet({ state }: LicenseSheetProps) {
             </Button>
           </form>
 
-          {/* Direct Purchase Actions (Integer Cents Only: 4900, 14900, 29900) */}
+          {/* Direct Purchase Actions (Integer Cents Only: 14900, 29900) */}
           <div className="border-t border-[#DDD8CE] pt-5 space-y-3">
             <div className="flex items-center justify-between">
               <span className="text-[12.5px] font-semibold text-[#141413]">Need a Commercial License?</span>
@@ -129,21 +129,6 @@ export function LicenseSheet({ state }: LicenseSheetProps) {
             </div>
 
             <div className="grid grid-cols-1 gap-2.5">
-              <div className="flex items-center justify-between gap-3 rounded-[3px] border border-[#DDD8CE] bg-[#F4F2EC]/65 p-3">
-                <div>
-                  <div className="text-[13px] font-semibold text-[#141413]">Pro Monthly Watchdog v2</div>
-                  <div className="font-mono text-[11px] text-[#68645B] tabular-nums">$49 / mo (4,900c)</div>
-                </div>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="border-[#141413] shrink-0"
-                  onClick={() => kernel.startPolarCheckout("Pro Monthly Watchdog v2 ($49/mo)", 4900)}
-                >
-                  Buy $49/mo
-                </Button>
-              </div>
-
               <div className="flex items-center justify-between gap-3 rounded-[3px] border border-[#141413] bg-[#F4F2EC] p-3">
                 <div>
                   <div className="text-[13px] font-semibold text-[#141413]">Lifetime Team License v2</div>
